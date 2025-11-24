@@ -170,7 +170,10 @@ def load_corpus_from_file(uploaded_file):
                 st.error(f"❌ CSV must have 'year' and 'text' columns. Found: {list(df.columns)}")
                 return None
             
-            for _, row in df.iterrows():
+            # Group by year and combine all text (handles multiple rows per year)
+            grouped = df.groupby(year_col)[text_col].apply(lambda x: ' '.join(x.astype(str))).reset_index()
+            
+            for _, row in grouped.iterrows():
                 try:
                     year = int(row[year_col])
                     text = str(row[text_col]).strip()
@@ -196,7 +199,10 @@ def load_corpus_from_file(uploaded_file):
                 st.error(f"❌ Excel must have 'year' and 'text' columns. Found: {list(df.columns)}")
                 return None
             
-            for _, row in df.iterrows():
+            # Group by year and combine all text (handles multiple rows per year)
+            grouped = df.groupby(year_col)[text_col].apply(lambda x: ' '.join(x.astype(str))).reset_index()
+            
+            for _, row in grouped.iterrows():
                 try:
                     year = int(row[year_col])
                     text = str(row[text_col]).strip()
