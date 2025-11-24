@@ -21,7 +21,7 @@ nlp = English()
 nlp.add_pipe("lemmatizer", config={"mode": "lookup"})
 
 # Ensure tokenizers + lemmatizer
-nltk.download("punkt")
+#nltk.download("punkt")
 
 # ─────────────────────────────────────────────────────────────
 # CLEAN + PARSE CORPUS
