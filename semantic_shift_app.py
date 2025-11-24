@@ -70,47 +70,31 @@ def main():
     - At least 500+ words per year for stability
     """)
     
-use_default = st.sidebar.checkbox("Use default built-in corpus (pre-computed embeddings)", value=False)
-
-if use_default:
-    st.sidebar.info("✅ Loading default corpus (pre-computed embeddings will be used)")
-    import numpy as np
-    url = "https://raw.githubusercontent.com/Muhsabrys/semantic-shift-analyzer/main/precomputed_embeddings.npz"
-    data = np.load(url, allow_pickle=True)
-    vocabulary = set(data["vocabulary"].tolist())
-    years = list(data["years"].tolist())
-    embeddings_dict = data["embeddings"].item()
-    global_vocab = vocabulary
-    models = {yr: None for yr in years}
-else:
     uploaded_file = st.sidebar.file_uploader(
         "Upload your corpus file",
         type=['txt', 'csv', 'xlsx', 'xls'],
         help="Upload a file with year and text data"
     )
-    if uploaded_file is not None:
-        year_to_text = load_corpus_from_file(uploaded_file)
-
     
     # Advanced settings
     with st.sidebar.expander("🔧 Advanced Settings"):
         vector_size = st.slider("Vector Size", 50, 300, 200, 50,
-                               help="Larger = more expressive but slower")
+                                help="Larger = more expressive but slower")
         window_size = st.slider("Context Window", 3, 10, 5, 1,
-                               help="How many surrounding words to consider")
+                                help="How many surrounding words to consider")
         min_years = st.slider("Min Years for Vocabulary", 2, 5, 2, 1,
-                             help="Word must appear in at least this many years")
+                              help="Word must appear in at least this many years")
         min_total_count = st.slider("Min Total Occurrences", 2, 10, 3, 1,
-                                   help="Word must appear this many times total")
+                                    help="Word must appear this many times total")
         n_seeds = st.slider("Training Seeds", 1, 10, 5, 1,
-                           help="More seeds = more stable but slower")
+                            help="More seeds = more stable but slower")
     
     year_to_text = None
     
     if uploaded_file is not None:
         with st.spinner("Loading your corpus..."):
             year_to_text = load_corpus_from_file(uploaded_file)
-            
+        
         if year_to_text is not None:
             years = sorted(year_to_text.keys())
             
@@ -135,7 +119,7 @@ else:
             # Show preview
             with st.sidebar.expander("📊 Preview Data"):
                 st.write(f"**Years:** {', '.join(map(str, years[:10]))}" + 
-                        ("..." if len(years) > 10 else ""))
+                         ("..." if len(years) > 10 else ""))
                 st.write(f"**Sample text from year {years[0]}:**")
                 st.text(year_to_text[years[0]][:200] + "...")
     else:
@@ -386,11 +370,11 @@ def _tab_word_to_word_distance(models, years, global_vocab):
             if distances:
                 fig, ax = plt.subplots(figsize=(12, 6))
                 ax.plot(valid_years_pair, distances, marker='o', linewidth=2, 
-                       markersize=8, color='#2ca02c')
+                        markersize=8, color='#2ca02c')
                 ax.set_xlabel('Year', fontsize=12)
                 ax.set_ylabel('Semantic Distance', fontsize=12)
                 ax.set_title(f'Distance Evolution: "{word1}" ↔ "{word2}"', 
-                           fontsize=14, fontweight='bold')
+                             fontsize=14, fontweight='bold')
                 ax.grid(True, alpha=0.3)
                 st.pyplot(fig)
                 plt.close()
@@ -413,7 +397,7 @@ def _tab_semantic_network(models, years, global_vocab):
     if words_input:
         words_list = [w.strip().lower() for w in words_input.split(',')]
         plot_semantic_network_robust(words_list, year_select, models, 
-                                    global_vocab, threshold)
+                                      global_vocab, threshold)
 
 
 def _tab_multi_word_comparison(models, years, global_vocab):
@@ -455,12 +439,12 @@ def _tab_multi_word_comparison(models, years, global_vocab):
                 
                 if drift_scores:
                     ax.plot(valid_years_word, drift_scores, marker='o', 
-                           linewidth=2, label=word)
+                            linewidth=2, label=word)
             
             ax.set_xlabel('Year', fontsize=12)
             ax.set_ylabel('Cosine Distance from Baseline', fontsize=12)
             ax.set_title(f'Comparative Semantic Drift (baseline: {years[0]})', 
-                       fontsize=14, fontweight='bold')
+                         fontsize=14, fontweight='bold')
             ax.legend()
             ax.grid(True, alpha=0.3)
             st.pyplot(fig)
@@ -548,7 +532,7 @@ def _tab_enhanced_networks(models, years, global_vocab):
     if word_network and word_network in global_vocab:
         if year_network in models:
             visualize_enhanced_semantic_network(year_network, word_network, 
-                                               models[year_network], global_vocab, topn_network)
+                                                models[year_network], global_vocab, topn_network)
         else:
             st.error(f"❌ No model for year {year_network}")
     elif word_network:
@@ -581,7 +565,7 @@ def _tab_enhanced_networks(models, years, global_vocab):
     
     if word_evolution and word_evolution in global_vocab and selected_years:
         visualize_neighbor_evolution(word_evolution, models, selected_years, 
-                                    global_vocab, topn_evolution)
+                                      global_vocab, topn_evolution)
     elif word_evolution and word_evolution not in global_vocab:
         st.error(f"❌ '{word_evolution}' not in global vocabulary")
     elif word_evolution and not selected_years:
@@ -604,7 +588,7 @@ def _create_vocabulary_explorer(global_vocab):
             all_words = sorted(list(global_vocab))
             st.write(f"Total: {len(all_words)} words")
             st.text_area("Vocabulary preview", value=", ".join(all_words[:100]), 
-                        height=200, label_visibility="hidden")
+                         height=200, label_visibility="hidden")
 
 
 if __name__ == "__main__":
