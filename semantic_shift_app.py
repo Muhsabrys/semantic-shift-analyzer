@@ -50,7 +50,7 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
 def main():
-    st.markdown('<p class="main-header">📊 Semantic Shift Analyzer</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-header">📊 𝐓𝐡𝐞 𝐒𝐞𝐦𝐚𝐧𝐭𝐫𝐢𝐟𝐭: Semantic Shift Analyzer</p>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Robust Analysis of Word Meaning Evolution Over Time</p>', 
                 unsafe_allow_html=True)
     
