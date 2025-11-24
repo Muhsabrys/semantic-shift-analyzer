@@ -74,9 +74,21 @@ def clean_sentence(s):
     return s
 
 
+import re
+
 def split_into_sentences(text):
-    sents = nltk.sent_tokenize(text)
-    return [clean_sentence(s) for s in sents if len(s.strip()) > 0]
+    """
+    Lightweight, stable sentence splitter.
+    Works without NLTK downloads.
+    """
+    if not isinstance(text, str):
+        text = str(text)
+
+    # Split at punctuation followed by whitespace or end of text
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+
+    # Clean sentences
+    return [clean_sentence(s) for s in sentences if len(s.strip()) > 0]
 
 
 # ─────────────────────────────────────────────────────────────
