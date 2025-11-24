@@ -98,22 +98,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Download NLTK data
-@st.cache_resource
-def download_nltk_data():
-    try:
-        nltk.data.find('corpora/state_union')
-    except LookupError:
-        nltk.download('state_union', quiet=True)
-    try:
-        nltk.data.find('tokenizers/punkt')
-    except LookupError:
-        nltk.download('punkt', quiet=True)
-
-download_nltk_data()
-
-ALL_STOPWORDS = set(STOP_WORDS)
-
 # Data loading and processing functions
 @st.cache_data
 def load_corpus():
