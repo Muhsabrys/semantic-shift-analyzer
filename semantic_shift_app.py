@@ -689,6 +689,7 @@ def main():
                 else:
                     st.pyplot(fig3d)
 
+
             # ---------------------- TAB 3 ----------------------
             with tab3:
                 sim_fig = plot_similarity_matrix(vectors, valid_years, target_word)
