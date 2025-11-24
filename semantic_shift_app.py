@@ -51,6 +51,21 @@ download_nltk_data()
 try:
     from nltk.corpus import stopwords
     ALL_STOPWORDS = set(stopwords.words('english'))
+    
+    # Remove words that are often important for semantic analysis
+    # These are technically stopwords but can have meaningful semantic shifts
+    KEEP_WORDS = {
+        # Time-related words
+        'day', 'days', 'year', 'years', 'time', 'times', 
+        'week', 'weeks', 'month', 'months', 'today', 'now',
+        # Negations (important for sentiment/meaning)
+        'no', 'not', 'nor', 'neither',
+        # Modal verbs (important for certainty/obligation)
+        'can', 'could', 'may', 'might', 'must', 'should', 'would',
+        # Other potentially meaningful words
+        'own', 'same', 'such', 'than', 'too', 'very', 'just', 'still'
+    }
+    ALL_STOPWORDS = ALL_STOPWORDS - KEEP_WORDS
 except:
     ALL_STOPWORDS = set()
 
