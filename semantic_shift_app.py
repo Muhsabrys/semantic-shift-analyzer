@@ -20,7 +20,7 @@ import io
 from datetime import datetime
 
 from nltk.tokenize import word_tokenize
-from gensim.models import Word2Vec
+from sentence_transformers import SentenceTransformer
 from sklearn.preprocessing import normalize
 from scipy.linalg import orthogonal_procrustes
 from scipy.spatial.distance import cosine, euclidean
@@ -250,31 +250,29 @@ def get_most_frequent_words(_year_to_tokens, _models, top_n=5):
     return recommended
 
 @st.cache_resource
-def train_models(_year_to_tokens):
-    models = {}
-    
-    for yr, tokens in _year_to_tokens.items():
-        text = " ".join(tokens)
-        
-        # REAL SENTENCE SPLITTING
-        sentences = [sent.split() for sent in nltk.sent_tokenize(text)]
-        
-        if len(sentences) < 3:
+@st.cache_data
+def compute_year_embeddings(year_to_text, model):
+    """
+    For each year:
+    - split text into sentences
+    - embed sentences using SentenceTransformer
+    """
+    year_embeddings = {}
+
+    for yr, text in year_to_text.items():
+        sentences = nltk.sent_tokenize(text)
+        if len(sentences) == 0:
             continue
-        
-        model = Word2Vec(
-            sentences=sentences,
-            vector_size=200,
-            window=5,
-            min_count=1,
-            sg=1,
-            workers=4,
-            epochs=10
-        )
-        
-        models[yr] = model
-    
-    return models
+
+        with st.spinner(f"Embedding {yr}..."):
+            embeddings = model.encode(sentences, show_progress_bar=False)
+            year_embeddings[yr] = {
+                "sentences": sentences,
+                "embeddings": embeddings
+            }
+
+    return year_embeddings
+
 
 
 def align_embeddings(base_model, other_model):
@@ -312,62 +310,34 @@ def align_embeddings(base_model, other_model):
     return aligned
 
 
-def get_aligned_embeddings(models, target_word, years):
+def get_word_vectors_sbert(year_embeddings, target_word):
     """
-    Get aligned embeddings for a target word across the provided list of years.
-    Guarantees that the target word is only considered missing if truly absent
-    from the model—not because of alignment filtering or stopword removal.
+    - Find all sentences containing the target word for each year
+    - Average their embeddings to get a yearly word-representation
     """
 
     target_word = target_word.lower().strip()
-
-    # Identify all years in which the target word appears
-    candidate_years = [
-        yr for yr in years
-        if yr in models and target_word in models[yr].wv.index_to_key
-    ]
-
-    if len(candidate_years) == 0:
-        return None, None, None
-
-    if len(candidate_years) == 1:
-        # Only one year → semantic drift impossible
-        return None, None, None
-
-    # Establish a base year
-    base_year = candidate_years[0]
-
-    # Build aligned embeddings dictionary
-    aligned = {}
-
-    # Base year embeddings (all words, no filtering)
-    aligned[base_year] = {
-        w: models[base_year].wv[w]
-        for w in models[base_year].wv.index_to_key
-    }
-
-    # Align other years to base year
-    for yr in candidate_years[1:]:
-        try:
-            aligned[yr] = align_embeddings(models[base_year], models[yr])
-        except Exception as e:
-            st.warning(f"Skipping year {yr} due to alignment error: {str(e)}")
-            continue
-
-    # Extract vectors for the target word in every valid aligned year
     vectors = []
     valid_years = []
 
-    for yr in candidate_years:
-        if yr in aligned and target_word in aligned[yr]:
-            vectors.append(aligned[yr][target_word])
+    for yr, data in year_embeddings.items():
+        sents = data["sentences"]
+        embeds = data["embeddings"]
+
+        # identify sentences containing the target word
+        idx = [i for i, s in enumerate(sents) if target_word in s.lower().split()]
+
+        if len(idx) > 0:
+            # average embeddings for those sentences
+            v = np.mean([embeds[i] for i in idx], axis=0)
+            vectors.append(v)
             valid_years.append(yr)
 
-    # Need at least 2 aligned vectors
     if len(vectors) < 2:
-        return None, None, None
+        return None, None
 
-    return aligned, vectors, valid_years
+    return vectors, valid_years
+
 
 def nearest_neighbors(aligned, year, word, topn=10):
     """Get nearest neighbors for a word in a specific year"""
@@ -675,18 +645,32 @@ def main():
     # Process corpus
     if year_to_text is not None:
         with st.spinner("Processing corpus..."):
-            year_to_tokens = tokenize_corpus(year_to_text)
             years = sorted(year_to_text.keys())
         
-        # Train models
-        cache_key = f"models_{uploaded_file.name}_{len(years)}"
-        if cache_key not in st.session_state:
-            with st.spinner("Training Word2Vec models... This may take a minute."):
-                st.session_state[cache_key] = train_models(year_to_tokens)
-            st.sidebar.success(f"✅ Trained {len(st.session_state[cache_key])} models")
+            # Sidebar model selector
+            st.sidebar.subheader("🧠 Embedding Model")
+            model_choice = st.sidebar.selectbox(
+                "Choose embedding model:",
+                [
+                    "all-MiniLM-L6-v2 (fast, recommended)",
+                    "all-mpnet-base-v2 (accurate, slower)"
+                ]
+            )
+            
+            # Load model only when needed
+            if "sbert_model" not in st.session_state or st.session_state.get("loaded_model") != model_choice:
+                with st.spinner("Loading embedding model..."):
+                    model_name = "all-MiniLM-L6-v2" if "MiniLM" in model_choice else "all-mpnet-base-v2"
+                    st.session_state.sbert_model = SentenceTransformer(model_name)
+                    st.session_state.loaded_model = model_choice
+
+                # ❗ REQUIRED: compute SBERT embeddings for each year
+            with st.spinner("Encoding corpus per year..."):
+                year_embeddings = compute_year_embeddings(
+                    year_to_text,
+                    st.session_state.sbert_model
+                )
         
-        models = st.session_state[cache_key]
-    
     # Analysis mode
     st.sidebar.subheader("📋 Analysis Mode")
     mode = st.sidebar.radio(
