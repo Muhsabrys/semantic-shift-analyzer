@@ -222,24 +222,30 @@ def tokenize_corpus(year_to_text):
 
 @st.cache_resource
 def train_models(_year_to_tokens):
-    """Train Word2Vec models for each year"""
+    """Train Word2Vec models for each year using proper sentences."""
     models = {}
-    
+
     for yr, tokens in _year_to_tokens.items():
-        if len(tokens) < 30:
+        if len(tokens) < 10:
             continue
-        
+
+        # Break tokens into pseudo-sentences of length 20
+        # (Realistic context windows for small yearly corpora)
+        sentences = [tokens[i:i+20] for i in range(0, len(tokens), 20)]
+
         model = Word2Vec(
-            sentences=[tokens],
+            sentences=sentences,
             vector_size=200,
             window=5,
-            min_count=2,
+            min_count=1,   # <-- CRUCIAL FIX
             sg=1,
             workers=4
         )
+
         models[yr] = model
-    
+
     return models
+
 
 def align_embeddings(base_model, other_model):
     """Align embeddings using Orthogonal Procrustes"""
