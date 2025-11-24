@@ -5,7 +5,16 @@ matplotlib>=3.8.0
 networkx>=3.1
 seaborn>=0.13.0
 pandas>=2.1.0
-gensim>=4.3.2
 scikit-learn>=1.3.0
 scipy>=1.11.0
 openpyxl>=3.0.0
+
+# SBERT embeddings
+sentence-transformers>=2.2.2
+
+# spaCy for lemmatization
+spacy>=3.7.2
+spacy-lookups-data>=1.0.5      # ensures lemma tables are available
+
+# Optional but recommended for stability
+tqdm>=4.66.1
