@@ -645,69 +645,76 @@ def main():
     
     # Main content
     if mode == "Single Word Drift":
-        st.header("🔍 Single Word Semantic Drift Analysis")
-        
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            target_word = st.text_input("Enter a word to analyze:", value="crisis")
-        
-        with col2:
-            st.write("")
-            st.write("")
-            analyze_btn = st.button("🚀 Analyze", type="primary")
-        
-        if analyze_btn:
-            aligned, vectors, valid_years = get_aligned_embeddings(models, target_word, years)
-            
-            if vectors is None or len(vectors) == 0:
-                st.error(f"❌ Word '{target_word}' not found in the corpus or insufficient data.")
+    st.header("🔍 Single Word Semantic Drift Analysis")
+
+    col1, col2 = st.columns([3, 1])
+
+    with col1:
+        target_word = st.text_input("Enter a word to analyze:", value="crisis")
+
+    with col2:
+        st.write("")
+        st.write("")
+        analyze_btn = st.button("🚀 Analyze", type="primary")
+
+    if analyze_btn:
+        aligned, vectors, valid_years = get_aligned_embeddings(models, target_word, years)
+
+        if vectors is None or len(vectors) == 0:
+            st.error(f"❌ Word '{target_word}' not found in the corpus or insufficient data.")
+        else:
+            count = len(valid_years)
+
+            if count == 1:
+                st.warning(
+                    f"ℹ️ '{target_word}' appears in only **1 year** — some visualizations will be unavailable."
+                )
             else:
-                count = len(valid_years)
-                
-                if count == 1:
-                    st.warning(f"ℹ️ '{target_word}' appears in only **1 year** — some visualizations will be unavailable.")
-                else:
-                    st.success(f"✅ Found '{target_word}' in {count} instances")
+                st.success(f"✅ Found '{target_word}' in {count} speeches")
 
+            # Tabs
+            tab1, tab2, tab3, tab4 = st.tabs(
+                ["📈 Drift Plot", "🌐 3D Trajectory", "🔥 Similarity Matrix", "📊 Statistics"]
+            )
 
-                # Tabs for different visualizations
-                tab1, tab2, tab3, tab4 = st.tabs(["📈 Drift Plot", "🌐 3D Trajectory", "🔥 Similarity Matrix", "📊 Statistics"])
-                
-                with tab1:
-                    st.pyplot(plot_drift(vectors, valid_years, target_word))
-                
-                with tab2:
+            # ---------------------- TAB 1 ----------------------
+            with tab1:
+                st.pyplot(plot_drift(vectors, valid_years, target_word))
+
+            # ---------------------- TAB 2 ----------------------
+            with tab2:
                 fig3d = plot_3d_trajectory(vectors, valid_years, target_word)
                 if fig3d is None:
                     st.warning("⚠️ Not enough data for 3D trajectory (need ≥ 3 years).")
                 else:
                     st.pyplot(fig3d)
 
-                with tab3:
-                    sim_fig = plot_similarity_matrix(vectors, valid_years, target_word)
-                    if sim_fig is None:
-                        st.warning("⚠️ Not enough data for similarity matrix (need ≥ 2 years).")
-                    else:
-                        st.pyplot(sim_fig)
-                        
-                with tab4:
-                    base_vec = vectors[0]
-                    drift_scores = [cosine(base_vec, v) for v in vectors]
-                    
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Mean Drift", f"{np.mean(drift_scores):.4f}")
-                    col2.metric("Max Drift", f"{np.max(drift_scores):.4f}")
-                    col3.metric("Min Drift", f"{np.min(drift_scores):.4f}")
-                    col4.metric("Std Dev", f"{np.std(drift_scores):.4f}")
-                    
-                    # Year-by-year data
-                    st.subheader("Year-by-Year Drift Scores")
-                    df = pd.DataFrame({
-                        'Year': valid_years,
-                        'Drift Score': drift_scores
-                    })
-                    st.dataframe(df, use_container_width=True)
+            # ---------------------- TAB 3 ----------------------
+            with tab3:
+                sim_fig = plot_similarity_matrix(vectors, valid_years, target_word)
+                if sim_fig is None:
+                    st.warning("⚠️ Not enough data for similarity matrix (need ≥ 2 years).")
+                else:
+                    st.pyplot(sim_fig)
+
+            # ---------------------- TAB 4 ----------------------
+            with tab4:
+                base_vec = vectors[0]
+                drift_scores = [cosine(base_vec, v) for v in vectors]
+
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Mean Drift", f"{np.mean(drift_scores):.4f}")
+                col2.metric("Max Drift", f"{np.max(drift_scores):.4f}")
+                col3.metric("Min Drift", f"{np.min(drift_scores):.4f}")
+                col4.metric("Std Dev", f"{np.std(drift_scores):.4f}")
+
+                st.subheader("Year-by-Year Drift Scores")
+                df = pd.DataFrame({
+                    'Year': valid_years,
+                    'Drift Score': drift_scores
+                })
+                st.dataframe(df, use_container_width=True)
+
     
     elif mode == "Word-to-Word Distance":
         st.header("🔗 Word-to-Word Distance Evolution")
