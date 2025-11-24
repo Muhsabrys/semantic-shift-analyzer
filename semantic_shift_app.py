@@ -97,6 +97,7 @@ def main():
         class MockWordVectors:
             def __init__(self, word_embeddings):
                 self.vectors = word_embeddings
+                self.index_to_key = list(word_embeddings.keys())
             
             def __contains__(self, word):
                 return word in self.vectors
