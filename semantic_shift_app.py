@@ -337,67 +337,96 @@ def plot_drift(vectors, valid_years, word):
     return fig
 
 def plot_3d_trajectory(vectors, valid_years, word):
-    """Plot 3D trajectory of semantic change"""
+    """Plot 3D trajectory of semantic change (safe version)."""
+
+    # REQUIRE AT LEAST 3 YEARS
+    if len(vectors) < 3:
+        return None
+
     vectors_array = np.array(vectors)
+
     pca = PCA(n_components=3)
-    vectors_3d = pca.fit_transform(vectors_array)
-    
+    try:
+        vectors_3d = pca.fit_transform(vectors_array)
+    except Exception:
+        return None
+
     fig = plt.figure(figsize=(12, 9))
     ax = fig.add_subplot(111, projection='3d')
-    
+
     colors = plt.cm.viridis(np.linspace(0, 1, len(vectors_3d)))
-    
+
+    # Plot trajectory
     for i in range(len(vectors_3d)-1):
-        ax.plot(vectors_3d[i:i+2, 0], vectors_3d[i:i+2, 1], vectors_3d[i:i+2, 2],
-                color=colors[i], linewidth=3, alpha=0.7)
-    
-    scatter = ax.scatter(vectors_3d[:, 0], vectors_3d[:, 1], vectors_3d[:, 2],
-                        c=range(len(valid_years)), cmap='viridis', 
-                        s=200, edgecolor='black', linewidth=2, alpha=0.8)
-    
+        ax.plot(
+            vectors_3d[i:i+2, 0],
+            vectors_3d[i:i+2, 1],
+            vectors_3d[i:i+2, 2],
+            color=colors[i], linewidth=3, alpha=0.7
+        )
+
+    # Scatter
+    scatter = ax.scatter(
+        vectors_3d[:, 0],
+        vectors_3d[:, 1],
+        vectors_3d[:, 2],
+        c=range(len(valid_years)),
+        cmap='viridis',
+        s=200,
+        edgecolor='black',
+        linewidth=2,
+        alpha=0.8
+    )
+
+    # Labels
     for i, year in enumerate(valid_years):
-        ax.text(vectors_3d[i, 0], vectors_3d[i, 1], vectors_3d[i, 2], 
-                str(year), fontsize=9, fontweight='bold')
-    
-    ax.scatter([vectors_3d[0, 0]], [vectors_3d[0, 1]], [vectors_3d[0, 2]], 
-              color='green', s=400, marker='*', edgecolor='black', linewidth=2)
-    ax.scatter([vectors_3d[-1, 0]], [vectors_3d[-1, 1]], [vectors_3d[-1, 2]], 
-              color='red', s=400, marker='*', edgecolor='black', linewidth=2)
-    
-    ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})', fontsize=11)
-    ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})', fontsize=11)
-    ax.set_zlabel(f'PC3 ({pca.explained_variance_ratio_[2]:.1%})', fontsize=11)
+        ax.text(
+            vectors_3d[i, 0],
+            vectors_3d[i, 1],
+            vectors_3d[i, 2],
+            str(year),
+            fontsize=9,
+            fontweight='bold'
+        )
+
     ax.set_title(f"3D Semantic Trajectory of '{word}'", fontsize=14, fontweight='bold')
-    
+
     return fig
 
+
 def plot_similarity_matrix(vectors, valid_years, word):
-    """Plot cross-year similarity matrix"""
+    """Plot similarity matrix (safe version)."""
+
+    if len(vectors) < 2:
+        return None
+
     n_years = len(valid_years)
     similarity_matrix = np.zeros((n_years, n_years))
-    
+
     for i in range(n_years):
         for j in range(n_years):
             similarity_matrix[i, j] = 1 - cosine(vectors[i], vectors[j])
-    
+
     fig, ax = plt.subplots(figsize=(10, 8))
     im = ax.imshow(similarity_matrix, cmap='YlOrRd', interpolation='nearest')
-    
+
     for i in range(n_years):
         for j in range(n_years):
-            text = ax.text(j, i, f'{similarity_matrix[i, j]:.2f}',
-                          ha="center", va="center", 
-                          color="black" if similarity_matrix[i, j] > 0.5 else "white",
-                          fontsize=8)
-    
+            ax.text(
+                j, i, f'{similarity_matrix[i, j]:.2f}',
+                ha="center", va="center",
+                color="black" if similarity_matrix[i, j] > 0.5 else "white",
+                fontsize=8
+            )
+
     ax.set_xticks(range(n_years))
     ax.set_yticks(range(n_years))
     ax.set_xticklabels(valid_years, rotation=45, ha='right')
     ax.set_yticklabels(valid_years)
     ax.set_title(f"Cross-Temporal Similarity Matrix for '{word}'", fontsize=14, fontweight='bold')
-    
+
     plt.colorbar(im, ax=ax, label='Cosine Similarity')
-    
+
     return fig
 
 def plot_semantic_network(aligned, year, word, topn=15):
@@ -643,13 +672,19 @@ def main():
                     st.pyplot(plot_drift(vectors, valid_years, target_word))
                 
                 with tab2:
-                    st.pyplot(plot_3d_trajectory(vectors, valid_years, target_word))
-                    st.info("💡 The 3D plot shows how the word moves through semantic space. Points far apart indicate meaning change.")
-                
+                fig3d = plot_3d_trajectory(vectors, valid_years, target_word)
+                if fig3d is None:
+                    st.warning("⚠️ Not enough data for 3D trajectory (need ≥ 3 years).")
+                else:
+                    st.pyplot(fig3d)
+
                 with tab3:
-                    st.pyplot(plot_similarity_matrix(vectors, valid_years, target_word))
-                    st.info("💡 Darker colors indicate higher similarity. Diagonal is always 1.0 (perfect self-similarity).")
-                
+                    sim_fig = plot_similarity_matrix(vectors, valid_years, target_word)
+                    if sim_fig is None:
+                        st.warning("⚠️ Not enough data for similarity matrix (need ≥ 2 years).")
+                    else:
+                        st.pyplot(sim_fig)
+                        
                 with tab4:
                     base_vec = vectors[0]
                     drift_scores = [cosine(base_vec, v) for v in vectors]
