@@ -16,7 +16,9 @@ from sklearn.decomposition import PCA
 from scipy.spatial.distance import cosine
 
 import spacy
-nlp = spacy.load("en_core_web_sm")
+from spacy.lang.en import English
+nlp = English()
+nlp.add_pipe("lemmatizer", config={"mode": "lookup"})
 
 # Ensure tokenizers + lemmatizer
 nltk.download("punkt")
