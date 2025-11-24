@@ -76,8 +76,18 @@ def main():
     if use_default:
         st.sidebar.info("✅ Loading default corpus (pre-computed embeddings will be used)")
         import numpy as np
-        url = "https://raw.githubusercontent.com/Muhsabrys/semantic-shift-analyzer/main/precomputed_embeddings.npz"
-        data = np.load(url, allow_pickle=True)
+        import urllib.request
+        import tempfile
+        
+        # Download the file from GitHub
+        url = "https://github.com/Muhsabrys/semantic-shift-analyzer/raw/refs/heads/main/precomputed_embeddings.npz"
+        
+        with st.spinner("Downloading pre-computed embeddings..."):
+            # Create a temporary file to store the downloaded data
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.npz') as tmp_file:
+                urllib.request.urlretrieve(url, tmp_file.name)
+                data = np.load(tmp_file.name, allow_pickle=True)
+        
         vocabulary = set(data["vocabulary"].tolist())
         years = list(data["years"].tolist())
         embeddings_dict = data["embeddings"].item()
