@@ -221,8 +221,8 @@ def tokenize_corpus(year_to_text):
     return year_to_tokens
 
 @st.cache_data
-def get_most_frequent_words(_year_to_tokens, top_n=5):
-    """Get the most frequent words from the corpus (excluding stopwords)"""
+def get_most_frequent_words(_year_to_tokens, _models, top_n=5):
+    """Get the most frequent words from the corpus that exist in the models (excluding stopwords)"""
     from collections import Counter
     
     all_tokens = []
@@ -233,8 +233,20 @@ def get_most_frequent_words(_year_to_tokens, top_n=5):
     filtered_tokens = [t for t in all_tokens if t not in ALL_STOPWORDS and len(t) > 2]
     word_counts = Counter(filtered_tokens)
     
-    # Return top N words
-    return [word for word, count in word_counts.most_common(top_n)]
+    # Get all words that exist in at least one model
+    model_vocab = set()
+    for model in _models.values():
+        model_vocab.update(model.wv.index_to_key)
+    
+    # Return top N words that exist in the models
+    recommended = []
+    for word, count in word_counts.most_common():
+        if word in model_vocab:
+            recommended.append(word)
+            if len(recommended) >= top_n:
+                break
+    
+    return recommended
 
 @st.cache_resource
 def train_models(_year_to_tokens):
@@ -631,8 +643,11 @@ def main():
         st.header("🔍 Single Word Semantic Drift Analysis")
         
         # Get recommended words
-        recommended_words = get_most_frequent_words(year_to_tokens, top_n=5)
-        st.info(f"💡 **Recommended words from your corpus:** {', '.join(recommended_words)}")
+        recommended_words = get_most_frequent_words(year_to_tokens, models, top_n=5)
+        if recommended_words:
+            st.info(f"💡 **Recommended words from your corpus:** {', '.join(recommended_words)}")
+        else:
+            st.warning("⚠️ No suitable words found for recommendation. Try words that appear multiple times in your corpus.")
         
         col1, col2 = st.columns([3, 1])
         
@@ -688,8 +703,9 @@ def main():
         st.header("🔗 Word-to-Word Distance Evolution")
         
         # Get recommended words
-        recommended_words = get_most_frequent_words(year_to_tokens, top_n=5)
-        st.info(f"💡 **Recommended words from your corpus:** {', '.join(recommended_words)}")
+        recommended_words = get_most_frequent_words(year_to_tokens, models, top_n=5)
+        if recommended_words:
+            st.info(f"💡 **Recommended words from your corpus:** {', '.join(recommended_words)}")
         
         col1, col2 = st.columns(2)
         
@@ -739,8 +755,9 @@ def main():
         st.header("🕸️ Semantic Network Analysis")
         
         # Get recommended words
-        recommended_words = get_most_frequent_words(year_to_tokens, top_n=5)
-        st.info(f"💡 **Recommended words from your corpus:** {', '.join(recommended_words)}")
+        recommended_words = get_most_frequent_words(year_to_tokens, models, top_n=5)
+        if recommended_words:
+            st.info(f"💡 **Recommended words from your corpus:** {', '.join(recommended_words)}")
         
         col1, col2, col3 = st.columns([2, 1, 1])
         
@@ -776,8 +793,9 @@ def main():
         st.header("📊 Multi-Word Comparative Analysis")
         
         # Get recommended words
-        recommended_words = get_most_frequent_words(year_to_tokens, top_n=5)
-        st.info(f"💡 **Recommended words from your corpus:** {', '.join(recommended_words)}")
+        recommended_words = get_most_frequent_words(year_to_tokens, models, top_n=5)
+        if recommended_words:
+            st.info(f"💡 **Recommended words from your corpus:** {', '.join(recommended_words)}")
         
         words_input = st.text_input(
             "Enter words to compare (comma-separated):",
