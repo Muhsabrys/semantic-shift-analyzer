@@ -92,7 +92,52 @@ def main():
         years = list(data["years"].tolist())
         embeddings_dict = data["embeddings"].item()
         global_vocab = vocabulary
-        models = {yr: None for yr in years}
+        
+        # Create mock Word2Vec models from pre-computed embeddings
+        class MockWordVectors:
+            def __init__(self, word_embeddings):
+                self.vectors = word_embeddings
+            
+            def __contains__(self, word):
+                return word in self.vectors
+            
+            def __getitem__(self, word):
+                return self.vectors.get(word)
+            
+            def similarity(self, word1, word2):
+                if word1 not in self.vectors or word2 not in self.vectors:
+                    return 0.0
+                vec1 = self.vectors[word1]
+                vec2 = self.vectors[word2]
+                return 1 - cosine(vec1, vec2)
+            
+            def most_similar(self, positive, topn=10):
+                if not positive or positive[0] not in self.vectors:
+                    return []
+                target_vec = self.vectors[positive[0]]
+                similarities = []
+                for word, vec in self.vectors.items():
+                    if word != positive[0]:
+                        sim = 1 - cosine(target_vec, vec)
+                        similarities.append((word, sim))
+                similarities.sort(key=lambda x: x[1], reverse=True)
+                return similarities[:topn]
+        
+        class MockModel:
+            def __init__(self, word_embeddings):
+                self.wv = MockWordVectors(word_embeddings)
+        
+        # Import cosine for similarity calculation
+        from scipy.spatial.distance import cosine
+        
+        # Create models with mock structure
+        models = {}
+        for yr in years:
+            year_embeddings = {word: embeddings_dict[word][yr] 
+                             for word in global_vocab 
+                             if yr in embeddings_dict.get(word, {})}
+            models[yr] = MockModel(year_embeddings)
+        
         word_to_years = {}
         word_to_total_count = {}
         min_years = 2
