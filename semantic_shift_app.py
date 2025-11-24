@@ -251,93 +251,122 @@ def get_most_frequent_words(_year_to_tokens, _models, top_n=5):
 
 @st.cache_resource
 def train_models(_year_to_tokens):
-    """Train Word2Vec models for each year"""
     models = {}
     
     for yr, tokens in _year_to_tokens.items():
-        if len(tokens) < 30:
+        text = " ".join(tokens)
+        
+        # REAL SENTENCE SPLITTING
+        sentences = [sent.split() for sent in nltk.sent_tokenize(text)]
+        
+        if len(sentences) < 3:
             continue
         
         model = Word2Vec(
-            sentences=[tokens],
+            sentences=sentences,
             vector_size=200,
             window=5,
-            min_count=1,  # Lowered to 1 to include more words
+            min_count=1,
             sg=1,
             workers=4,
-            epochs=10  # Added more training epochs for better embeddings
+            epochs=10
         )
+        
         models[yr] = model
     
     return models
 
+
 def align_embeddings(base_model, other_model):
-    """Align embeddings using Orthogonal Procrustes"""
-    shared = list(set(base_model.wv.index_to_key) &
-                  set(other_model.wv.index_to_key))
-    
+    """
+    Align embeddings using Orthogonal Procrustes.
+    Keeps the entire shared vocabulary without filtering,
+    fixes alignment indexing, and guarantees that all words
+    present in both years survive alignment.
+    """
+
+    # Shared vocabulary between the two models
+    shared = list(
+        set(base_model.wv.index_to_key) &
+        set(other_model.wv.index_to_key)
+    )
+
     if len(shared) < 20:
-        st.warning(f"⚠️ Small shared vocabulary ({len(shared)} words)")
-    
+        st.warning(f"⚠️ Shared vocabulary is very small ({len(shared)} words). Alignment may be unstable.")
+
+    # Build source and target matrices
     B = np.array([base_model.wv[w] for w in shared])
     O = np.array([other_model.wv[w] for w in shared])
-    
+
+    # Normalize before alignment
     B = normalize(B)
     O = normalize(O)
-    
+
+    # Compute rotation
     R, _ = orthogonal_procrustes(O, B)
     A = O @ R
-    
-    aligned = {w: v for (w, v) in zip(shared, A)
-               if w not in ALL_STOPWORDS}
-    
+
+    # Build aligned dictionary (full shared vocab)
+    aligned = {w: A[i] for i, w in enumerate(shared)}
+
     return aligned
 
+
 def get_aligned_embeddings(models, target_word, years):
-    """Get aligned embeddings for a target word across years"""
-    # Normalize target word
+    """
+    Get aligned embeddings for a target word across the provided list of years.
+    Guarantees that the target word is only considered missing if truly absent
+    from the model—not because of alignment filtering or stopword removal.
+    """
+
     target_word = target_word.lower().strip()
-    
-    candidate_years = [yr for yr in years if yr in models and target_word in models[yr].wv.key_to_index]
-    
+
+    # Identify all years in which the target word appears
+    candidate_years = [
+        yr for yr in years
+        if yr in models and target_word in models[yr].wv.index_to_key
+    ]
+
     if len(candidate_years) == 0:
         return None, None, None
-    
-    base_year = candidate_years[0]
-    aligned = {}
-    
-    # Baseline
-    try:
-        aligned[base_year] = {
-            w: models[base_year].wv[w]
-            for w in models[base_year].wv.index_to_key
-            if w not in ALL_STOPWORDS
-        }
-    except Exception as e:
-        st.error(f"Error creating baseline embeddings: {str(e)}")
+
+    if len(candidate_years) == 1:
+        # Only one year → semantic drift impossible
         return None, None, None
-    
-    # Align other years
+
+    # Establish a base year
+    base_year = candidate_years[0]
+
+    # Build aligned embeddings dictionary
+    aligned = {}
+
+    # Base year embeddings (all words, no filtering)
+    aligned[base_year] = {
+        w: models[base_year].wv[w]
+        for w in models[base_year].wv.index_to_key
+    }
+
+    # Align other years to base year
     for yr in candidate_years[1:]:
         try:
             aligned[yr] = align_embeddings(models[base_year], models[yr])
         except Exception as e:
             st.warning(f"Skipping year {yr} due to alignment error: {str(e)}")
             continue
-    
-    # Extract vectors for target word
+
+    # Extract vectors for the target word in every valid aligned year
     vectors = []
     valid_years = []
-    
+
     for yr in candidate_years:
         if yr in aligned and target_word in aligned[yr]:
             vectors.append(aligned[yr][target_word])
             valid_years.append(yr)
-    
-    # Need at least 2 years for temporal analysis
+
+    # Need at least 2 aligned vectors
     if len(vectors) < 2:
         return None, None, None
-    
+
     return aligned, vectors, valid_years
 
 def nearest_neighbors(aligned, year, word, topn=10):
