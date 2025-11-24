@@ -195,32 +195,7 @@ def main():
 def _show_welcome_message():
     """Display welcome message and instructions"""
     st.markdown("""
-    ### 🎯 Key Improvements in This Version:
-    
-    **✅ Lemmatization**
-    - Converts words to base forms (running → run)
-    - Reduces vocabulary fragmentation
-    - Better semantic tracking
-    
-    **✅ Global Vocabulary**
-    - Filters words appearing across multiple years
-    - Reduces OOV (Out of Vocabulary) errors
-    - Ensures alignment stability
-    
-    **✅ Stability via Averaging**
-    - Trains multiple models with different random seeds
-    - Averages embeddings to reduce variance
-    - More reliable results
-    
-    **✅ Better Error Handling**
-    - Clear messages when words don't exist
-    - Explains why analysis failed
-    - Suggests fixes
-    
-    **✅ Corpus Quality Checks**
-    - Warns about small corpora
-    - Shows vocabulary statistics
-    - Recommends minimum data sizes
+    ### 🎯 WELCOME TO THE SEMANTRIFT:
     
     ### 📝 How to Format Your File:
     
