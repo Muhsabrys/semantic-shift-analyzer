@@ -16,6 +16,8 @@ from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from matplotlib.gridspec import GridSpec
 import pandas as pd
+import io
+from datetime import datetime
 
 from nltk.corpus import state_union
 from nltk.tokenize import word_tokenize
@@ -100,7 +102,7 @@ st.markdown("""
 
 # Data loading and processing functions
 @st.cache_data
-def load_corpus():
+def load_corpus_from_default():
     """Load and organize State of the Union corpus by year"""
     files = state_union.fileids()
     year_to_text = {}
@@ -109,6 +111,111 @@ def load_corpus():
         year = int(f.split("-")[0])
         text = state_union.raw(f)
         year_to_text[year] = text
+    
+    return year_to_text
+
+@st.cache_data
+def load_corpus_from_file(uploaded_file):
+    """Load corpus from uploaded file (TXT, CSV, or XLSX)"""
+    year_to_text = {}
+    
+    try:
+        file_extension = uploaded_file.name.split('.')[-1].lower()
+        
+        if file_extension == 'txt':
+            # TXT format: each line should be "YEAR<tab>TEXT" or "YEAR,TEXT"
+            content = uploaded_file.getvalue().decode('utf-8')
+            lines = content.strip().split('\n')
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # Try tab separator first, then comma
+                if '\t' in line:
+                    parts = line.split('\t', 1)
+                elif ',' in line:
+                    parts = line.split(',', 1)
+                else:
+                    st.warning(f"⚠️ Skipping line (no separator found): {line[:50]}...")
+                    continue
+                
+                if len(parts) == 2:
+                    try:
+                        year = int(parts[0].strip())
+                        text = parts[1].strip()
+                        if text:
+                            year_to_text[year] = text
+                    except ValueError:
+                        st.warning(f"⚠️ Invalid year format: {parts[0]}")
+                        
+        elif file_extension == 'csv':
+            # CSV format: expects columns 'year' and 'text' (case-insensitive)
+            df = pd.read_csv(uploaded_file)
+            
+            # Find year and text columns (case-insensitive)
+            year_col = None
+            text_col = None
+            
+            for col in df.columns:
+                col_lower = col.lower().strip()
+                if col_lower in ['year', 'years', 'date']:
+                    year_col = col
+                elif col_lower in ['text', 'content', 'document', 'corpus']:
+                    text_col = col
+            
+            if year_col is None or text_col is None:
+                st.error(f"❌ CSV must have 'year' and 'text' columns. Found: {list(df.columns)}")
+                return None
+            
+            for _, row in df.iterrows():
+                try:
+                    year = int(row[year_col])
+                    text = str(row[text_col]).strip()
+                    if text and text != 'nan':
+                        year_to_text[year] = text
+                except (ValueError, TypeError) as e:
+                    st.warning(f"⚠️ Skipping row with invalid data: {e}")
+                    
+        elif file_extension in ['xlsx', 'xls']:
+            # Excel format: expects columns 'year' and 'text' (case-insensitive)
+            df = pd.read_excel(uploaded_file)
+            
+            # Find year and text columns (case-insensitive)
+            year_col = None
+            text_col = None
+            
+            for col in df.columns:
+                col_lower = col.lower().strip()
+                if col_lower in ['year', 'years', 'date']:
+                    year_col = col
+                elif col_lower in ['text', 'content', 'document', 'corpus']:
+                    text_col = col
+            
+            if year_col is None or text_col is None:
+                st.error(f"❌ Excel must have 'year' and 'text' columns. Found: {list(df.columns)}")
+                return None
+            
+            for _, row in df.iterrows():
+                try:
+                    year = int(row[year_col])
+                    text = str(row[text_col]).strip()
+                    if text and text != 'nan':
+                        year_to_text[year] = text
+                except (ValueError, TypeError) as e:
+                    st.warning(f"⚠️ Skipping row with invalid data: {e}")
+        else:
+            st.error(f"❌ Unsupported file format: {file_extension}")
+            return None
+            
+    except Exception as e:
+        st.error(f"❌ Error loading file: {str(e)}")
+        return None
+    
+    if not year_to_text:
+        st.error("❌ No valid data found in uploaded file")
+        return None
     
     return year_to_text
 
@@ -403,26 +510,72 @@ def plot_word_distance_evolution(aligned, word1, word2, years_list):
 # Main application
 def main():
     st.markdown('<div class="main-header">📊 Semantic Shift Analyzer</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Semantic Shift Analyzer</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Explore how word meanings change over time</div>', unsafe_allow_html=True)
     
     # Sidebar
     st.sidebar.header("⚙️ Configuration")
     
-    # Load data with progress
-    with st.spinner("Loading State of the Union corpus..."):
-        year_to_text = load_corpus()
-        year_to_tokens = tokenize_corpus(year_to_text)
-        years = sorted(year_to_text.keys())
+    # Data source selection
+    st.sidebar.subheader("📁 Data Source")
+    data_source = st.sidebar.radio(
+        "Choose your corpus:",
+        ["Default (State of Union 1945-2006)", "Upload Your Own Corpus"]
+    )
     
-    st.sidebar.success(f"✅ Loaded {len(years)} speeches ({min(years)}-{max(years)})")
+    year_to_text = None
     
-    # Train models
-    if 'models' not in st.session_state:
-        with st.spinner("Training Word2Vec models... This may take a minute."):
-            st.session_state.models = train_models(year_to_tokens)
-        st.sidebar.success(f"✅ Trained {len(st.session_state.models)} models")
+    if data_source == "Upload Your Own Corpus":
+        st.sidebar.markdown("""
+        **Upload Instructions:**
+        - **TXT**: Each line should be `YEAR<tab>TEXT` or `YEAR,TEXT`
+        - **CSV/XLSX**: Must have columns named `year` and `text`
+        - Years can be any integer value
+        """)
+        
+        uploaded_file = st.sidebar.file_uploader(
+            "Upload your corpus file",
+            type=['txt', 'csv', 'xlsx', 'xls'],
+            help="Upload a file with year and text data"
+        )
+        
+        if uploaded_file is not None:
+            with st.spinner("Loading your corpus..."):
+                year_to_text = load_corpus_from_file(uploaded_file)
+                
+            if year_to_text is not None:
+                years = sorted(year_to_text.keys())
+                st.sidebar.success(f"✅ Loaded {len(years)} documents ({min(years)}-{max(years)})")
+                
+                # Show preview
+                with st.sidebar.expander("📊 Preview Data"):
+                    st.write(f"**Years:** {', '.join(map(str, years[:10]))}" + ("..." if len(years) > 10 else ""))
+                    st.write(f"**Sample text from year {years[0]}:**")
+                    st.text(year_to_text[years[0]][:200] + "...")
+        else:
+            st.info("👆 Please upload a corpus file to begin analysis")
+            return
+    else:
+        # Load default corpus
+        with st.spinner("Loading State of the Union corpus..."):
+            year_to_text = load_corpus_from_default()
+            years = sorted(year_to_text.keys())
+        
+        st.sidebar.success(f"✅ Loaded {len(years)} speeches ({min(years)}-{max(years)})")
     
-    models = st.session_state.models
+    # Process corpus
+    if year_to_text is not None:
+        with st.spinner("Processing corpus..."):
+            year_to_tokens = tokenize_corpus(year_to_text)
+            years = sorted(year_to_text.keys())
+        
+        # Train models
+        cache_key = f"models_{data_source}_{len(years)}"
+        if cache_key not in st.session_state:
+            with st.spinner("Training Word2Vec models... This may take a minute."):
+                st.session_state[cache_key] = train_models(year_to_tokens)
+            st.sidebar.success(f"✅ Trained {len(st.session_state[cache_key])} models")
+        
+        models = st.session_state[cache_key]
     
     # Analysis mode
     st.sidebar.subheader("📋 Analysis Mode")
