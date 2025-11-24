@@ -203,9 +203,9 @@ def load_corpus_from_file(uploaded_file):
 
 @st.cache_data
 def clean_text(text):
-    """Clean and normalize text"""
-    text = re.sub(r"[^A-Za-z ]+", " ", text)
-    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"http\S+", " ", text)         # remove URLs
+    text = re.sub(r"[^\w\s'-]", " ", text)       # keep unicode letters, numbers, _, apostrophes, hyphens
+    text = re.sub(r"\s+", " ", text).strip()
     return text.lower()
 
 @st.cache_data
@@ -215,7 +215,7 @@ def tokenize_corpus(year_to_text):
     
     for yr, text in year_to_text.items():
         cleaned = clean_text(text)
-        tokens = [t for t in word_tokenize(cleaned) if t.isalpha()]
+        tokens = [t for t in word_tokenize(cleaned) if t.isalnum() or "'" in t or "-" in t]
         year_to_tokens[yr] = tokens
     
     return year_to_tokens
@@ -230,7 +230,7 @@ def get_most_frequent_words(_year_to_tokens, _models, top_n=5):
         all_tokens.extend(tokens)
     
     # Filter out stopwords and count
-    filtered_tokens = [t for t in all_tokens if t not in ALL_STOPWORDS and len(t) > 2]
+    filtered_tokens = [t for t in all_tokens if t not in ALL_STOPWORDS]
     word_counts = Counter(filtered_tokens)
     
     # Count how many years each word appears in
