@@ -218,10 +218,10 @@ def clean_and_lemmatize(text):
     # Lemmatize and filter
     lemmatized = []
     for token in tokens:
-        if token.isalpha() and len(token) > 2:  # Filter short words
+        if token.isalpha() and len(token) >= 2:  # Filter very short words (1 character)
             lemma = lemmatizer.lemmatize(token, pos='v')  # Verb lemmatization
             lemma = lemmatizer.lemmatize(lemma, pos='n')  # Noun lemmatization
-            if lemma not in ALL_STOPWORDS:
+            if lemma not in ALL_STOPWORDS and len(lemma) >= 2:  # Check lemma length too
                 lemmatized.append(lemma)
     
     return lemmatized
@@ -783,31 +783,73 @@ def main():
             
             # Check word validity
             if word:
-                if word not in global_vocab:
-                    st.error(f"""
-                    ❌ Word "{word}" not in global vocabulary.
+                # Check if this word or its lemmatized form is in vocabulary
+                lemmatized = lemmatizer.lemmatize(lemmatizer.lemmatize(word, pos='v'), pos='n')
+                
+                if word not in global_vocab and lemmatized not in global_vocab:
+                    # Check if the word exists in any year (before filtering)
+                    word_in_any_year = word in word_to_years or lemmatized in word_to_years
                     
-                    **Possible reasons:**
-                    - Doesn't appear in enough years (need {min_years}+)
-                    - Doesn't appear enough times total (need {min_total_count}+)
-                    - May have been lemmatized to different form
+                    error_msg = f'❌ Word "{word}" not in global vocabulary.\n\n'
                     
-                    **Try:**
-                    - Search the vocabulary list below
-                    - Use base form of word (e.g., "run" instead of "running")
-                    - Lower the filtering thresholds in Advanced Settings
-                    """)
+                    if lemmatized != word:
+                        error_msg += f'💡 **Lemmatization:** "{word}" → "{lemmatized}"\n\n'
+                    
+                    if word_in_any_year:
+                        # Word exists but filtered out
+                        actual_word = word if word in word_to_years else lemmatized
+                        years_with_word = len(word_to_years.get(actual_word, set()))
+                        total_occurrences = word_to_total_count.get(actual_word, 0)
+                        
+                        error_msg += f'**Word found but filtered out:**\n'
+                        error_msg += f'- Appears in {years_with_word} year(s) (need {min_years}+)\n'
+                        error_msg += f'- Total occurrences: {total_occurrences} (need {min_total_count}+)\n\n'
+                        
+                        if years_with_word >= min_years and total_occurrences >= min_total_count:
+                            error_msg += f'⚠️ **BUG DETECTED:** Word meets criteria but still filtered!\n'
+                            error_msg += f'This shouldn\'t happen. Please report this issue.\n\n'
+                        
+                        error_msg += f'**Solution:**\n'
+                        if years_with_word < min_years:
+                            error_msg += f'- Lower "Min Years" to {years_with_word} in Advanced Settings\n'
+                        if total_occurrences < min_total_count:
+                            error_msg += f'- Lower "Min Total Occurrences" to {total_occurrences} in Advanced Settings\n'
+                        error_msg += f'- Then retrain the models (cache will be cleared)'
+                    else:
+                        error_msg += f'**Word not found in corpus**\n'
+                        error_msg += f'- Neither "{word}" nor "{lemmatized}" appear in your text\n'
+                        error_msg += f'- May have been filtered during cleaning:\n'
+                        error_msg += f'  • Removed as stopword\n'
+                        error_msg += f'  • Too short (<2 characters after lemmatization)\n'
+                        error_msg += f'  • Contains non-alphabetic characters\n\n'
+                        error_msg += f'**Try:**\n'
+                        error_msg += f'- Check spelling\n'
+                        error_msg += f'- Search vocabulary list below to see what\'s available\n'
+                        error_msg += f'- Try synonyms or related words'
+                    
+                    st.error(error_msg)
+                    
+                    # Show some similar words from vocabulary
+                    similar_words = [w for w in sorted(global_vocab) if word[:3] in w or lemmatized[:3] in w]
+                    if similar_words:
+                        st.info(f"**Similar words in vocabulary:** {', '.join(similar_words[:15])}")
                 else:
+                    # Use lemmatized form if original not in vocab
+                    word_to_use = word if word in global_vocab else lemmatized
+                    
+                    if word_to_use != word:
+                        st.info(f'💡 Using lemmatized form: "{word}" → "{word_to_use}"')
+                    
                     # Show word statistics
-                    years_present = word_to_years.get(word, set())
-                    total_count = word_to_total_count.get(word, 0)
+                    years_present = word_to_years.get(word_to_use, set())
+                    total_count = word_to_total_count.get(word_to_use, 0)
                     
                     col1, col2, col3 = st.columns(3)
                     col1.metric("Years Present", len(years_present))
                     col2.metric("Total Occurrences", total_count)
                     col3.metric("Years Available", ', '.join(map(str, sorted(years_present))))
                     
-                    plot_drift_robust(word, models, years, global_vocab, metric)
+                    plot_drift_robust(word_to_use, models, years, global_vocab, metric)
         
         with tab2:
             st.subheader("📏 Word-to-Word Distance Evolution")
@@ -940,7 +982,7 @@ def main():
                 st.write("**All vocabulary words:**")
                 all_words = sorted(list(global_vocab))
                 st.write(f"Total: {len(all_words)} words")
-                st.text_area("", value=", ".join(all_words[:100]), height=200)
+                st.text_area("Vocabulary preview", value=", ".join(all_words[:100]), height=200, label_visibility="hidden")
     
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📚 About")
