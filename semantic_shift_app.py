@@ -32,9 +32,9 @@ def download_nltk_data():
     except LookupError:
         nltk.download('state_union', quiet=True)
     try:
-        nltk.data.find('tokenizers/punkt')
+        nltk.data.find('tokenizers/punkt_tab')
     except LookupError:
-        nltk.download('punkt', quiet=True)
+        nltk.download('punkt_tab', quiet=True)
     try:
         nltk.data.find('corpora/stopwords')
     except LookupError:
