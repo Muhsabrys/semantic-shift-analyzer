@@ -403,7 +403,7 @@ def plot_word_distance_evolution(aligned, word1, word2, years_list):
 # Main application
 def main():
     st.markdown('<div class="main-header">📊 Semantic Shift Analyzer</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Explore how word meanings change over time in State of the Union speeches</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Semantic Shift Analyzer</div>', unsafe_allow_html=True)
     
     # Sidebar
     st.sidebar.header("⚙️ Configuration")
