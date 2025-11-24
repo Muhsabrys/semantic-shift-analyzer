@@ -70,11 +70,27 @@ def main():
     - At least 500+ words per year for stability
     """)
     
+use_default = st.sidebar.checkbox("Use default built-in corpus (pre-computed embeddings)", value=False)
+
+if use_default:
+    st.sidebar.info("✅ Loading default corpus (pre-computed embeddings will be used)")
+    import numpy as np
+    url = "https://raw.githubusercontent.com/Muhsabrys/semantic-shift-analyzer/main/precomputed_embeddings.npz"
+    data = np.load(url, allow_pickle=True)
+    vocabulary = set(data["vocabulary"].tolist())
+    years = list(data["years"].tolist())
+    embeddings_dict = data["embeddings"].item()
+    global_vocab = vocabulary
+    models = {yr: None for yr in years}
+else:
     uploaded_file = st.sidebar.file_uploader(
         "Upload your corpus file",
         type=['txt', 'csv', 'xlsx', 'xls'],
         help="Upload a file with year and text data"
     )
+    if uploaded_file is not None:
+        year_to_text = load_corpus_from_file(uploaded_file)
+
     
     # Advanced settings
     with st.sidebar.expander("🔧 Advanced Settings"):
