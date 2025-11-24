@@ -23,7 +23,42 @@ from gensim.models import Word2Vec
 from sklearn.preprocessing import normalize
 from scipy.linalg import orthogonal_procrustes
 from scipy.spatial.distance import cosine, euclidean
-from spacy.lang.en.stop_words import STOP_WORDS
+
+# Download NLTK data
+@st.cache_resource
+def download_nltk_data():
+    try:
+        nltk.data.find('corpora/state_union')
+    except LookupError:
+        nltk.download('state_union', quiet=True)
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        nltk.download('punkt', quiet=True)
+    try:
+        nltk.data.find('corpora/stopwords')
+    except LookupError:
+        nltk.download('stopwords', quiet=True)
+
+download_nltk_data()
+
+# Get stopwords from NLTK
+try:
+    from nltk.corpus import stopwords
+    ALL_STOPWORDS = set(stopwords.words('english'))
+except:
+    # Fallback stopwords list
+    ALL_STOPWORDS = set(['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 
+                         'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself',
+                         'she', 'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them',
+                         'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this',
+                         'that', 'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been',
+                         'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing',
+                         'a', 'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until',
+                         'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against', 'between',
+                         'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to',
+                         'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again',
+                         'further', 'then', 'once'])
 
 # Page configuration
 st.set_page_config(
