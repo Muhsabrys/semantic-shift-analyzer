@@ -628,7 +628,7 @@ def main():
             st.write("")
             analyze_btn = st.button("🚀 Analyze", type="primary")
         
-        if analyze_btn or target_word:
+        if analyze_btn:
             aligned, vectors, valid_years = get_aligned_embeddings(models, target_word, years)
             
             if vectors is None or len(vectors) == 0:
