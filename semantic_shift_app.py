@@ -334,7 +334,8 @@ def get_aligned_embeddings(models, target_word, years):
             vectors.append(aligned[yr][target_word])
             valid_years.append(yr)
     
-    if len(vectors) == 0:
+    # Need at least 2 years for temporal analysis
+    if len(vectors) < 2:
         return None, None, None
     
     return aligned, vectors, valid_years
@@ -377,8 +378,25 @@ def plot_drift(vectors, valid_years, word):
 def plot_3d_trajectory(vectors, valid_years, word):
     """Plot 3D trajectory of semantic change"""
     vectors_array = np.array(vectors)
-    pca = PCA(n_components=3)
-    vectors_3d = pca.fit_transform(vectors_array)
+    
+    # Need at least 3 data points for 3D PCA
+    n_components = min(3, len(vectors))
+    if n_components < 2:
+        # Return a simple message plot if insufficient data
+        fig, ax = plt.subplots(figsize=(12, 9))
+        ax.text(0.5, 0.5, f"Insufficient data for 3D trajectory\n(need at least 2 years, found {len(vectors)})",
+                ha='center', va='center', fontsize=14)
+        ax.axis('off')
+        return fig
+    
+    pca = PCA(n_components=n_components)
+    vectors_reduced = pca.fit_transform(vectors_array)
+    
+    # If only 2 components, add a zero dimension for 3D plotting
+    if n_components == 2:
+        vectors_3d = np.column_stack([vectors_reduced, np.zeros(len(vectors_reduced))])
+    else:
+        vectors_3d = vectors_reduced
     
     fig = plt.figure(figsize=(12, 9))
     ax = fig.add_subplot(111, projection='3d')
@@ -404,8 +422,15 @@ def plot_3d_trajectory(vectors, valid_years, word):
     
     ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]:.1%})', fontsize=11)
     ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]:.1%})', fontsize=11)
-    ax.set_zlabel(f'PC3 ({pca.explained_variance_ratio_[2]:.1%})', fontsize=11)
-    ax.set_title(f"3D Semantic Trajectory of '{word}'", fontsize=14, fontweight='bold')
+    if n_components >= 3:
+        ax.set_zlabel(f'PC3 ({pca.explained_variance_ratio_[2]:.1%})', fontsize=11)
+    else:
+        ax.set_zlabel('PC3 (0.0%)', fontsize=11)
+    
+    title = f"3D Semantic Trajectory of '{word}'"
+    if n_components == 2:
+        title += " (2D projection)"
+    ax.set_title(title, fontsize=14, fontweight='bold')
     
     return fig
 
@@ -644,6 +669,16 @@ def main():
     if mode == "Single Word Drift":
         st.header("🔍 Single Word Semantic Drift Analysis")
         
+        with st.expander("ℹ️ Analysis Requirements"):
+            st.markdown("""
+            **For temporal analysis, a word must:**
+            - Appear in at least **2 different years**
+            - Have sufficient context in each year for embedding
+            - Be present in the aligned vocabulary across years
+            
+            Words appearing in only 1 year cannot be analyzed for semantic shift.
+            """)
+        
         # Get recommended words
         recommended_words = get_most_frequent_words(year_to_tokens, models, top_n=5)
         if recommended_words:
@@ -671,12 +706,15 @@ def main():
             aligned, vectors, valid_years = get_aligned_embeddings(models, target_word, years)
             
             if vectors is None or len(vectors) == 0:
-                st.error(f"❌ Word '{target_word}' not found in the corpus or insufficient data.")
+                st.error(f"❌ Word '{target_word}' not found in the corpus or insufficient data for temporal analysis.")
                 
                 # Show which years have this word
                 years_with_word = [yr for yr in years if yr in models and target_word.lower().strip() in models[yr].wv.index_to_key]
                 if years_with_word:
-                    st.info(f"ℹ️ Word found in years: {', '.join(map(str, years_with_word))} (need at least 2 years for analysis)")
+                    if len(years_with_word) == 1:
+                        st.warning(f"⚠️ Word found in only 1 year: {years_with_word[0]}. Need at least **2 years** for temporal analysis.")
+                    else:
+                        st.info(f"ℹ️ Word found in years: {', '.join(map(str, years_with_word))}, but alignment failed.")
                 else:
                     st.info(f"ℹ️ Word '{target_word}' does not appear in any year's model. It may have been filtered during processing.")
                     
