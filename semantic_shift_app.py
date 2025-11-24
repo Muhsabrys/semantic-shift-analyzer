@@ -663,8 +663,14 @@ def main():
             if vectors is None or len(vectors) == 0:
                 st.error(f"❌ Word '{target_word}' not found in the corpus or insufficient data.")
             else:
-                st.success(f"✅ Found '{target_word}' in {len(valid_years)} speeches")
+                count = len(valid_years)
                 
+                if count == 1:
+                    st.warning(f"ℹ️ '{target_word}' appears in only **1 year** — some visualizations will be unavailable.")
+                else:
+                    st.success(f"✅ Found '{target_word}' in {count} instances")
+
+
                 # Tabs for different visualizations
                 tab1, tab2, tab3, tab4 = st.tabs(["📈 Drift Plot", "🌐 3D Trajectory", "🔥 Similarity Matrix", "📊 Statistics"])
                 
