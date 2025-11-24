@@ -611,7 +611,7 @@ def plot_semantic_network_robust(words, year, models, global_vocab, threshold=0.
 
 # Main application
 def main():
-    st.markdown('<p class="main-header">📊 Semantic Shift Analyzer</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-header">📊 Semandrift</p>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Robust Analysis of Word Meaning Evolution Over Time</p>', 
                 unsafe_allow_html=True)
     
