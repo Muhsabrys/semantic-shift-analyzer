@@ -27,39 +27,44 @@ nltk.download("punkt")
 # CLEAN + PARSE CORPUS
 # ─────────────────────────────────────────────────────────────
 
-def load_corpus(upload):
-    ext = upload.name.split(".")[-1].lower()
-    df = None
+def load_corpus(uploaded):
+    import pandas as pd
 
+    ext = uploaded.name.split(".")[-1].lower()
+
+    # Load file
     if ext == "csv":
-        df = pd.read_csv(upload, header=None)
+        df = pd.read_csv(uploaded, header=0)   # keep header
+    elif ext in ("xlsx", "xls"):
+        df = pd.read_excel(uploaded, header=0)
+    else:
+        # TXT: assume no header
+        df = pd.read_csv(uploaded, sep=None, engine="python", header=None)
 
-    elif ext in ["xlsx", "xls"]:
-        df = pd.read_excel(upload, header=None)
+    # Detect whether file already has headers
+    # Try to detect first column is year-like
+    first_row = str(df.iloc[0, 0])
 
-    elif ext == "txt":
-        lines = upload.getvalue().decode("utf-8").split("\n")
-        rows = []
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            if "\t" in line:
-                parts = line.split("\t", 1)
-            elif "," in line:
-                parts = line.split(",", 1)
-            else:
-                continue
-            rows.append(parts)
-        df = pd.DataFrame(rows)
+    if first_row.isdigit():
+        # No header → manually assign names
+        df.columns = ["year", "text"]
+    else:
+        # Has header → rename safely
+        df.columns = [c.lower().strip() for c in df.columns]
+        df.rename(columns={df.columns[0]: "year", df.columns[1]: "text"}, inplace=True)
 
-    # Expect first column = year, second column = text
-    df.columns = ["year", "text"]
+    # Clean year column
+    df["year"] = pd.to_numeric(df["year"], errors="coerce")
 
+    # Drop invalid rows
+    df = df.dropna(subset=["year"])
     df["year"] = df["year"].astype(int)
-    df = df.sort_values("year")
 
-    return df
+    # Clean text
+    df["text"] = df["text"].astype(str)
+
+    return df[["year", "text"]]
+
 
 
 def clean_sentence(s):
