@@ -22,7 +22,6 @@ nlp.add_pipe("lemmatizer", config={"mode": "lookup"})
 
 # Ensure tokenizers + lemmatizer
 nltk.download("punkt")
-nlp = spacy.load("en_core_web_sm")  # for lemmatization
 
 # ─────────────────────────────────────────────────────────────
 # CLEAN + PARSE CORPUS
