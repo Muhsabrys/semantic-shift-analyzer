@@ -123,32 +123,70 @@ def load_corpus_from_file(uploaded_file):
         file_extension = uploaded_file.name.split('.')[-1].lower()
         
         if file_extension == 'txt':
-            # TXT format: each line should be "YEAR<tab>TEXT" or "YEAR,TEXT"
             content = uploaded_file.getvalue().decode('utf-8')
             lines = content.strip().split('\n')
             
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                # Try tab separator first, then comma
-                if '\t' in line:
-                    parts = line.split('\t', 1)
-                elif ',' in line:
-                    parts = line.split(',', 1)
-                else:
-                    st.warning(f"⚠️ Skipping line (no separator found): {line[:50]}...")
-                    continue
-                
+            # Check if first line has year format (try to detect)
+            first_line = lines[0].strip() if lines else ""
+            has_years = False
+            
+            # Try to detect if file has year format (YEAR<tab>TEXT or YEAR,TEXT)
+            if first_line and ('\t' in first_line or ',' in first_line):
+                parts = first_line.split('\t', 1) if '\t' in first_line else first_line.split(',', 1)
                 if len(parts) == 2:
                     try:
-                        year = int(parts[0].strip())
-                        text = parts[1].strip()
-                        if text:
-                            year_to_text[year] = text
+                        int(parts[0].strip())
+                        has_years = True
                     except ValueError:
-                        st.warning(f"⚠️ Invalid year format: {parts[0]}")
+                        pass
+            
+            if has_years:
+                # Process as year-formatted file
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    # Try tab separator first, then comma
+                    if '\t' in line:
+                        parts = line.split('\t', 1)
+                    elif ',' in line:
+                        parts = line.split(',', 1)
+                    else:
+                        continue
+                    
+                    if len(parts) == 2:
+                        try:
+                            year = int(parts[0].strip())
+                            text = parts[1].strip()
+                            if text:
+                                year_to_text[year] = text
+                        except ValueError:
+                            st.warning(f"⚠️ Invalid year format: {parts[0]}")
+            else:
+                # Plain text file - split into chunks (paragraphs or sentences)
+                # Group by paragraphs (separated by double newlines) or every N lines
+                full_text = content.strip()
+                
+                # Split by double newlines (paragraphs)
+                paragraphs = [p.strip() for p in full_text.split('\n\n') if p.strip()]
+                
+                if not paragraphs:
+                    # If no paragraphs, split by single newlines
+                    paragraphs = [l.strip() for l in lines if l.strip()]
+                
+                if not paragraphs:
+                    st.error("❌ No valid text found in file")
+                    return None
+                
+                # Assign sequential "years" (indices) to each paragraph/chunk
+                for idx, para in enumerate(paragraphs, start=1):
+                    if len(para) > 30:  # Only include substantial text chunks
+                        year_to_text[idx] = para
+                
+                if not year_to_text:
+                    st.info("💡 Try uploading a file with longer text passages (minimum 30 words per section)")
+                    return None
                         
         elif file_extension == 'csv':
             # CSV format: expects columns 'year' and 'text' (case-insensitive)
@@ -160,7 +198,7 @@ def load_corpus_from_file(uploaded_file):
             
             for col in df.columns:
                 col_lower = col.lower().strip()
-                if col_lower in ['year', 'years', 'date']:
+                if col_lower in ['year', 'years', 'date', 'index', 'id']:
                     year_col = col
                 elif col_lower in ['text', 'content', 'document', 'corpus']:
                     text_col = col
@@ -188,7 +226,7 @@ def load_corpus_from_file(uploaded_file):
             
             for col in df.columns:
                 col_lower = col.lower().strip()
-                if col_lower in ['year', 'years', 'date']:
+                if col_lower in ['year', 'years', 'date', 'index', 'id']:
                     year_col = col
                 elif col_lower in ['text', 'content', 'document', 'corpus']:
                     text_col = col
@@ -331,10 +369,15 @@ def plot_drift(vectors, valid_years, word):
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.plot(valid_years, drift_scores, marker="o", linewidth=3, markersize=10, color='#2E86AB')
     
-    # Trend line
-    z = np.polyfit(range(len(valid_years)), drift_scores, 2)
-    p = np.poly1d(z)
-    ax.plot(valid_years, p(range(len(valid_years))), "--", linewidth=2, color='#A23B72', alpha=0.7)
+    # Trend line (only if we have enough data points)
+    if len(valid_years) >= 3:
+        try:
+            z = np.polyfit(range(len(valid_years)), drift_scores, min(2, len(valid_years) - 1))
+            p = np.poly1d(z)
+            ax.plot(valid_years, p(range(len(valid_years))), "--", linewidth=2, color='#A23B72', alpha=0.7, label='Trend')
+        except (np.linalg.LinAlgError, ValueError):
+            # Skip trend line if polyfit fails
+            pass
     
     ax.set_title(f"Semantic Drift of '{word}' Over Time", fontsize=16, fontweight='bold')
     ax.set_xlabel("Year", fontsize=14)
@@ -510,57 +553,74 @@ def plot_word_distance_evolution(aligned, word1, word2, years_list):
 # Main application
 def main():
     st.markdown('<div class="main-header">📊 Semantic Shift Analyzer</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header">Explore how word meanings change over time</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header">Explore how word meanings change over time in your text corpus</div>', unsafe_allow_html=True)
     
     # Sidebar
     st.sidebar.header("⚙️ Configuration")
     
-    # Data source selection
-    st.sidebar.subheader("📁 Data Source")
-    data_source = st.sidebar.radio(
-        "Choose your corpus:",
-        ["Default (State of Union 1945-2006)", "Upload Your Own Corpus"]
+    # Data source - upload only
+    st.sidebar.subheader("📁 Upload Your Corpus")
+    st.sidebar.markdown("""
+    **Supported Formats:**
+    - **TXT (with years)**: `YEAR<tab>TEXT` or `YEAR,TEXT`
+    - **TXT (plain)**: Regular text file (auto-chunks into sections)
+    - **CSV/XLSX**: Must have `year` and `text` columns
+    
+    For plain text files, the app will automatically split the content into sections.
+    """)
+    
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload your corpus file",
+        type=['txt', 'csv', 'xlsx', 'xls'],
+        help="Upload a file with text data for semantic analysis"
     )
     
     year_to_text = None
     
-    if data_source == "Upload Your Own Corpus":
-        st.sidebar.markdown("""
-        **Upload Instructions:**
-        - **TXT**: Each line should be `YEAR<tab>TEXT` or `YEAR,TEXT`
-        - **CSV/XLSX**: Must have columns named `year` and `text`
-        - Years can be any integer value
-        """)
-        
-        uploaded_file = st.sidebar.file_uploader(
-            "Upload your corpus file",
-            type=['txt', 'csv', 'xlsx', 'xls'],
-            help="Upload a file with year and text data"
-        )
-        
-        if uploaded_file is not None:
-            with st.spinner("Loading your corpus..."):
-                year_to_text = load_corpus_from_file(uploaded_file)
-                
-            if year_to_text is not None:
-                years = sorted(year_to_text.keys())
-                st.sidebar.success(f"✅ Loaded {len(years)} documents ({min(years)}-{max(years)})")
-                
-                # Show preview
-                with st.sidebar.expander("📊 Preview Data"):
-                    st.write(f"**Years:** {', '.join(map(str, years[:10]))}" + ("..." if len(years) > 10 else ""))
-                    st.write(f"**Sample text from year {years[0]}:**")
-                    st.text(year_to_text[years[0]][:200] + "...")
-        else:
-            st.info("👆 Please upload a corpus file to begin analysis")
-            return
-    else:
-        # Load default corpus
-        with st.spinner("Loading State of the Union corpus..."):
-            year_to_text = load_corpus_from_default()
+    if uploaded_file is not None:
+        with st.spinner("Loading your corpus..."):
+            year_to_text = load_corpus_from_file(uploaded_file)
+            
+        if year_to_text is not None:
             years = sorted(year_to_text.keys())
+            
+            # Check if these are real years or just indices
+            if all(y > 1000 and y < 3000 for y in years):
+                st.sidebar.success(f"✅ Loaded {len(years)} documents ({min(years)}-{max(years)})")
+                time_label = "Year"
+            else:
+                st.sidebar.success(f"✅ Loaded {len(years)} text sections (indexed 1-{max(years)})")
+                time_label = "Section"
+            
+            # Show preview
+            with st.sidebar.expander("📊 Preview Data"):
+                st.write(f"**{time_label}s:** {', '.join(map(str, years[:10]))}" + ("..." if len(years) > 10 else ""))
+                st.write(f"**Sample text from {time_label.lower()} {years[0]}:**")
+                st.text(year_to_text[years[0]][:200] + "...")
+    else:
+        st.info("👆 Please upload a corpus file to begin analysis")
+        st.markdown("""
+        ### 📝 How to Format Your File:
         
-        st.sidebar.success(f"✅ Loaded {len(years)} speeches ({min(years)}-{max(years)})")
+        **Option 1: Plain Text File**
+        - Just upload any .txt file with your content
+        - The app will automatically split it into sections
+        - Each paragraph becomes a time point
+        
+        **Option 2: Text with Years**
+        - Format: `2020<tab>Your text here` (one per line)
+        - Or: `2020,Your text here`
+        
+        **Option 3: CSV/Excel**
+        - Two columns: `year` and `text`
+        - Years can be actual years or sequential numbers
+        
+        ### 💡 Tips:
+        - Plain text works great for books, articles, or any long text
+        - Use years/indices when you want temporal analysis
+        - Longer text sections produce better results
+        """)
+        return
     
     # Process corpus
     if year_to_text is not None:
@@ -568,8 +628,14 @@ def main():
             year_to_tokens = tokenize_corpus(year_to_text)
             years = sorted(year_to_text.keys())
         
+        # Determine time label based on year range
+        if all(y > 1000 and y < 3000 for y in years):
+            time_label = "Year"
+        else:
+            time_label = "Section"
+        
         # Train models
-        cache_key = f"models_{data_source}_{len(years)}"
+        cache_key = f"models_{uploaded_file.name}_{len(years)}"
         if cache_key not in st.session_state:
             with st.spinner("Training Word2Vec models... This may take a minute."):
                 st.session_state[cache_key] = train_models(year_to_tokens)
