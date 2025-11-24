@@ -233,15 +233,16 @@ def get_most_frequent_words(_year_to_tokens, _models, top_n=5):
     filtered_tokens = [t for t in all_tokens if t not in ALL_STOPWORDS and len(t) > 2]
     word_counts = Counter(filtered_tokens)
     
-    # Get all words that exist in at least one model
-    model_vocab = set()
-    for model in _models.values():
-        model_vocab.update(model.wv.index_to_key)
+    # Count how many years each word appears in
+    word_year_counts = {}
+    for word in word_counts.keys():
+        year_count = sum(1 for model in _models.values() if word in model.wv.index_to_key)
+        word_year_counts[word] = year_count
     
-    # Return top N words that exist in the models
+    # Return top N words that exist in at least 2 years (for temporal analysis)
     recommended = []
     for word, count in word_counts.most_common():
-        if word in model_vocab:
+        if word_year_counts.get(word, 0) >= 2:  # Must appear in at least 2 years
             recommended.append(word)
             if len(recommended) >= top_n:
                 break
@@ -261,9 +262,10 @@ def train_models(_year_to_tokens):
             sentences=[tokens],
             vector_size=200,
             window=5,
-            min_count=2,
+            min_count=1,  # Lowered to 1 to include more words
             sg=1,
-            workers=4
+            workers=4,
+            epochs=10  # Added more training epochs for better embeddings
         )
         models[yr] = model
     
@@ -647,7 +649,13 @@ def main():
         if recommended_words:
             st.info(f"💡 **Recommended words from your corpus:** {', '.join(recommended_words)}")
         else:
-            st.warning("⚠️ No suitable words found for recommendation. Try words that appear multiple times in your corpus.")
+            # Show debug info
+            total_vocab = set()
+            for model in models.values():
+                total_vocab.update(model.wv.index_to_key)
+            st.warning(f"⚠️ No suitable words found for recommendation. Total unique words in models: {len(total_vocab)}")
+            with st.expander("🔍 Debug: Sample words from vocabulary"):
+                st.write(f"Sample words: {', '.join(list(total_vocab)[:20])}")
         
         col1, col2 = st.columns([3, 1])
         
@@ -664,6 +672,23 @@ def main():
             
             if vectors is None or len(vectors) == 0:
                 st.error(f"❌ Word '{target_word}' not found in the corpus or insufficient data.")
+                
+                # Show which years have this word
+                years_with_word = [yr for yr in years if yr in models and target_word.lower().strip() in models[yr].wv.index_to_key]
+                if years_with_word:
+                    st.info(f"ℹ️ Word found in years: {', '.join(map(str, years_with_word))} (need at least 2 years for analysis)")
+                else:
+                    st.info(f"ℹ️ Word '{target_word}' does not appear in any year's model. It may have been filtered during processing.")
+                    
+                    # Suggest similar words
+                    from collections import Counter
+                    all_tokens = []
+                    for tokens in year_to_tokens.values():
+                        all_tokens.extend(tokens)
+                    word_counts = Counter(all_tokens)
+                    similar = [w for w, c in word_counts.most_common(50) if target_word[:3] in w or w[:3] in target_word]
+                    if similar:
+                        st.info(f"💡 Did you mean: {', '.join(similar[:5])}?")
             else:
                 st.success(f"✅ Found '{target_word}' in {len(valid_years)} speeches")
                 
