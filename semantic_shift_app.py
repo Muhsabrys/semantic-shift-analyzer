@@ -1,104 +1,75 @@
-# ========================================================
-# SEMANTIC SHIFT ANALYZER — CLEAN SBERT VERSION
-# ========================================================
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import re
-import nltk
-import spacy
-import networkx as nx
+from sentence_transformers import SentenceTransformer
+from scipy.spatial.distance import cosine
+from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 
-from sentence_transformers import SentenceTransformer
-from sklearn.decomposition import PCA
-from scipy.spatial.distance import cosine
+# ---------------------------------------------------------
+# 1. Lightweight sentence splitter (no NLTK)
+# ---------------------------------------------------------
+def split_into_sentences(text):
+    if not isinstance(text, str):
+        text = str(text)
+    parts = re.split(r'(?<=[.!?])\s+', text.strip())
+    return [s.strip() for s in parts if s.strip()]
 
-import spacy
-from spacy.lang.en import English
-nlp = English()
-nlp.add_pipe("lemmatizer", config={"mode": "lookup"})
+# ---------------------------------------------------------
+# 2. Lightweight lemmatizer (no spaCy)
+# ---------------------------------------------------------
+def simple_lemma(word):
+    w = word.lower().strip()
+    w = re.sub(r"[^a-z0-9'-]", "", w)
 
-# Ensure tokenizers + lemmatizer
-#nltk.download("punkt")
+    if w.endswith("ies"):
+        return w[:-3] + "y"
+    if w.endswith("ses") or w.endswith("xes"):
+        return w[:-2]
+    if w.endswith("s") and len(w) > 3:
+        return w[:-1]
+    if w.endswith("ing") and len(w) > 5:
+        return w[:-3]
+    if w.endswith("ed") and len(w) > 4:
+        return w[:-2]
+    return w
 
-# ─────────────────────────────────────────────────────────────
-# CLEAN + PARSE CORPUS
-# ─────────────────────────────────────────────────────────────
-
+# ---------------------------------------------------------
+# 3. File Loader (universal: CSV, TXT, XLSX)
+# ---------------------------------------------------------
 def load_corpus(uploaded):
-    import pandas as pd
-
     ext = uploaded.name.split(".")[-1].lower()
 
-    # Load file
     if ext == "csv":
-        df = pd.read_csv(uploaded, header=0)   # keep header
+        df = pd.read_csv(uploaded)
     elif ext in ("xlsx", "xls"):
-        df = pd.read_excel(uploaded, header=0)
+        df = pd.read_excel(uploaded)
     else:
-        # TXT: assume no header
         df = pd.read_csv(uploaded, sep=None, engine="python", header=None)
 
-    # Detect whether file already has headers
-    # Try to detect first column is year-like
-    first_row = str(df.iloc[0, 0])
-
-    if first_row.isdigit():
-        # No header → manually assign names
+    # Detect header
+    first_cell = str(df.iloc[0, 0])
+    if first_cell.isdigit():
         df.columns = ["year", "text"]
     else:
-        # Has header → rename safely
         df.columns = [c.lower().strip() for c in df.columns]
         df.rename(columns={df.columns[0]: "year", df.columns[1]: "text"}, inplace=True)
 
-    # Clean year column
     df["year"] = pd.to_numeric(df["year"], errors="coerce")
-
-    # Drop invalid rows
     df = df.dropna(subset=["year"])
     df["year"] = df["year"].astype(int)
-
-    # Clean text
     df["text"] = df["text"].astype(str)
 
     return df[["year", "text"]]
 
-
-
-def clean_sentence(s):
-    s = re.sub(r"http\S+", " ", s)
-    s = re.sub(r"[^\w\s'-]", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
-
-import re
-
-def split_into_sentences(text):
-    """
-    Lightweight, stable sentence splitter.
-    Works without NLTK downloads.
-    """
-    if not isinstance(text, str):
-        text = str(text)
-
-    # Split at punctuation followed by whitespace or end of text
-    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-
-    # Clean sentences
-    return [clean_sentence(s) for s in sentences if len(s.strip()) > 0]
-
-
-# ─────────────────────────────────────────────────────────────
-# SBERT EMBEDDING PER YEAR
-# ─────────────────────────────────────────────────────────────
-
+# ---------------------------------------------------------
+# 4. Embed each year using SBERT
+# ---------------------------------------------------------
 def compute_year_embeddings(df, model):
     year_embeddings = {}
 
-    for yr in df["year"].unique():
+    for yr in sorted(df["year"].unique()):
         year_text = " ".join(df[df["year"] == yr]["text"].astype(str).tolist())
         sentences = split_into_sentences(year_text)
 
@@ -106,7 +77,6 @@ def compute_year_embeddings(df, model):
             continue
 
         embeddings = model.encode(sentences, show_progress_bar=False)
-
         year_embeddings[yr] = {
             "sentences": sentences,
             "embeddings": embeddings
@@ -114,28 +84,11 @@ def compute_year_embeddings(df, model):
 
     return year_embeddings
 
-
-# ─────────────────────────────────────────────────────────────
-# WORD-VECTOR EXTRACTION (LEMMA MATCH)
-# ─────────────────────────────────────────────────────────────
-
-def sentence_contains_word(sentence, target_lemma):
-    """
-    Lemma-aware word detection using spaCy.
-    """
-    doc = nlp(sentence.lower())
-    lemmas = [t.lemma_ for t in doc]
-    return target_lemma in lemmas
-
-
+# ---------------------------------------------------------
+# 5. Extract vector for a target word across years
+# ---------------------------------------------------------
 def get_word_vectors(year_embeddings, target_word):
-    """
-    For each year, find all sentences whose *lemmas* contain the target word,
-    and average their embeddings.
-    """
-    target_word = target_word.lower()
-    target_lemma = nlp(target_word)[0].lemma_
-
+    lemma = simple_lemma(target_word)
     vectors = []
     valid_years = []
 
@@ -143,133 +96,70 @@ def get_word_vectors(year_embeddings, target_word):
         sents = data["sentences"]
         embeds = data["embeddings"]
 
-        idx = []
-        for i, s in enumerate(sents):
-            if sentence_contains_word(s, target_lemma):
-                idx.append(i)
+        matches = []
+        for i, sent in enumerate(sents):
+            tokens = [simple_lemma(t) for t in sent.lower().split()]
+            if lemma in tokens:
+                matches.append(embeds[i])
 
-        if len(idx) > 0:
-            v = np.mean([embeds[i] for i in idx], axis=0)
-            vectors.append(v)
+        if len(matches) > 0:
+            vec = np.mean(matches, axis=0)
+            vectors.append(vec)
             valid_years.append(yr)
 
     if len(vectors) < 2:
         return None, None
 
-    return np.array(vectors), valid_years
+    return vectors, valid_years
 
-
-# ─────────────────────────────────────────────────────────────
-# VISUALIZATIONS
-# ─────────────────────────────────────────────────────────────
-
+# ---------------------------------------------------------
+# 6. Plot: Drift over time
+# ---------------------------------------------------------
 def plot_drift(vectors, years, word):
     base = vectors[0]
     drift = [cosine(base, v) for v in vectors]
 
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(10,5))
     ax.plot(years, drift, marker="o", linewidth=3)
-    ax.set_title(f"Semantic Drift of '{word}'")
+    ax.set_title(f"Semantic Drift of '{word}' Over Time")
     ax.set_xlabel("Year")
-    ax.set_ylabel("Cosine distance from base year")
+    ax.set_ylabel("Cosine Distance from First Year")
     ax.grid(True)
     return fig
 
+# ---------------------------------------------------------
+# 7. Plot 2D PCA trajectory
+# ---------------------------------------------------------
+def plot_trajectory(vectors, years, word):
+    arr = np.array(vectors)
 
-def plot_similarity_matrix(vectors, years, word):
-    n = len(vectors)
-    sim = np.zeros((n, n))
-
-    for i in range(n):
-        for j in range(n):
-            sim[i, j] = 1 - cosine(vectors[i], vectors[j])
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-    cax = ax.imshow(sim, cmap="YlOrRd")
-    fig.colorbar(cax)
-
-    ax.set_xticks(range(n))
-    ax.set_yticks(range(n))
-    ax.set_xticklabels(years)
-    ax.set_yticklabels(years)
-    ax.set_title(f"Cross-Year Similarity Matrix for '{word}'")
-
-    return fig
-
-
-def plot_3d_trajectory(vectors, years, word):
-    if len(vectors) < 2:
-        fig, ax = plt.subplots()
-        ax.text(0.5, 0.5, "Not enough data for 3D plot", ha="center")
+    if len(arr) < 2:
+        fig, ax = plt.subplots(figsize=(10,5))
+        ax.text(0.5,0.5,"Not enough data for PCA",ha="center")
         ax.axis("off")
         return fig
 
-    pca = PCA(n_components=3)
-    pts = pca.fit_transform(vectors)
+    pca = PCA(n_components=2)
+    reduced = pca.fit_transform(arr)
 
-    fig = plt.figure(figsize=(10, 7))
-    ax = fig.add_subplot(111, projection="3d")
-
-    ax.plot(pts[:, 0], pts[:, 1], pts[:, 2], marker="o")
+    fig, ax = plt.subplots(figsize=(10,5))
+    ax.plot(reduced[:,0], reduced[:,1], "-o")
     for i, yr in enumerate(years):
-        ax.text(pts[i, 0], pts[i, 1], pts[i, 2], str(yr))
-
-    ax.set_title(f"3D Trajectory of '{word}'")
+        ax.text(reduced[i,0], reduced[i,1], str(yr))
+    ax.set_title(f"2D PCA Semantic Trajectory of '{word}'")
+    ax.set_xlabel("PC1")
+    ax.set_ylabel("PC2")
+    ax.grid(True)
     return fig
 
-
-def build_semantic_network(year_embeddings, year, target_word, topn=10):
-    vectors, years = get_word_vectors(year_embeddings, target_word)
-    if vectors is None:
-        return None
-
-    # Use that year's embedding
-    yr_idx = years.index(year)
-    v = vectors[yr_idx]
-
-    # Compute similarity to all sentences
-    sents = year_embeddings[year]["sentences"]
-    embeds = year_embeddings[year]["embeddings"]
-
-    sims = [(sents[i], 1 - cosine(v, embeds[i])) for i in range(len(sents))]
-    sims = sorted(sims, key=lambda x: x[1], reverse=True)[:topn]
-
-    # Build network
-    G = nx.Graph()
-    G.add_node(target_word)
-
-    for s, score in sims:
-        G.add_node(s)
-        G.add_edge(target_word, s, weight=score)
-
-    return G
-
-
-def plot_semantic_network(G, word):
-    if G is None:
-        fig, ax = plt.subplots()
-        ax.text(0.5, 0.5, f"No meaningful neighbors for '{word}'", ha="center")
-        ax.axis("off")
-        return fig
-
-    pos = nx.spring_layout(G, seed=42)
-    fig, ax = plt.subplots(figsize=(12, 8))
-
-    nx.draw(G, pos, with_labels=True, font_size=8, ax=ax,
-            node_color="lightblue", edge_color="gray")
-    ax.set_title(f"Semantic Network for '{word}'")
-
-    return fig
-
-
-# ─────────────────────────────────────────────────────────────
-# STREAMLIT UI
-# ─────────────────────────────────────────────────────────────
-
+# ---------------------------------------------------------
+# Streamlit App
+# ---------------------------------------------------------
 def main():
-    st.title("📊 Semantic Shift Analyzer (SBERT Version)")
+    st.title("📊 Semantic Shift Analyzer (SBERT – MiniLM-L6-v2)")
+    st.write("Analyze how word meanings change over time using SBERT sentence embeddings.")
 
-    uploaded = st.file_uploader("Upload corpus", type=["csv", "txt", "xlsx"])
+    uploaded = st.file_uploader("Upload CSV, TXT, or XLSX with two columns: year, text")
 
     if not uploaded:
         st.info("Please upload a file to begin.")
@@ -278,113 +168,36 @@ def main():
     df = load_corpus(uploaded)
     st.success(f"Loaded {len(df)} rows, years {df['year'].min()}–{df['year'].max()}")
 
-    # SBERT model selector
-    model_choice = st.selectbox(
-        "Choose embedding model",
-        ["all-MiniLM-L6-v2", "all-mpnet-base-v2"]
-    )
-    model = SentenceTransformer(model_choice)
+    # SBERT
+    st.subheader("Embedding Model: all-MiniLM-L6-v2")
+    with st.spinner("Loading SBERT model..."):
+        model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
-    # Embed per year
+    # Embed
     with st.spinner("Embedding corpus..."):
         year_embeddings = compute_year_embeddings(df, model)
 
-    mode = st.radio(
-        "Select analysis mode",
-        ["Single Word Drift", "Semantic Network", "Word-to-Word Distance", "Multi-Word Comparison"]
-    )
+    # Analysis
+    st.subheader("Analyze Word Drift")
+    word = st.text_input("Enter word:", "crisis")
 
-    # ───── SINGLE WORD DRIFT ─────
-
-    if mode == "Single Word Drift":
-        word = st.text_input("Enter word:", "crisis")
-
-        if st.button("Analyze"):
+    if st.button("Analyze"):
+        with st.spinner("Searching for word across years..."):
             vectors, years = get_word_vectors(year_embeddings, word)
 
-            if vectors is None:
-                st.error("Not enough occurrences of this word across years.")
-                return
+        if vectors is None:
+            st.error("Word not found in at least 2 different years.")
+            return
 
-            tab1, tab2, tab3 = st.tabs(["Drift Plot", "Similarity Matrix", "3D Trajectory"])
+        st.success(f"Found in {len(years)} years: {years}")
 
-            with tab1:
-                st.pyplot(plot_drift(vectors, years, word))
+        tab1, tab2 = st.tabs(["📈 Drift", "🧭 Trajectory"])
 
-            with tab2:
-                st.pyplot(plot_similarity_matrix(vectors, years, word))
+        with tab1:
+            st.pyplot(plot_drift(vectors, years, word))
 
-            with tab3:
-                st.pyplot(plot_3d_trajectory(vectors, years, word))
-
-    # ───── SEMANTIC NETWORK ─────
-
-    elif mode == "Semantic Network":
-        word = st.text_input("Word:", "crisis")
-        year = st.selectbox("Choose year:", sorted(year_embeddings.keys()))
-
-        if st.button("Generate Network"):
-            G = build_semantic_network(year_embeddings, year, word)
-            st.pyplot(plot_semantic_network(G, word))
-
-    # ───── WORD TO WORD DISTANCE ─────
-
-    elif mode == "Word-to-Word Distance":
-        w1 = st.text_input("Word 1:", "crisis")
-        w2 = st.text_input("Word 2:", "economy")
-
-        if st.button("Compare"):
-            v1, y1 = get_word_vectors(year_embeddings, w1)
-            v2, y2 = get_word_vectors(year_embeddings, w2)
-
-            if v1 is None or v2 is None:
-                st.error("One or both words missing.")
-                return
-
-            years = sorted(list(set(y1) & set(y2)))
-            dists = []
-
-            for yr in years:
-                i = y1.index(yr)
-                j = y2.index(yr)
-                dists.append(cosine(v1[i], v2[j]))
-
-            fig, ax = plt.subplots(figsize=(10, 5))
-            ax.plot(years, dists, marker="o")
-            ax.set_title(f"Distance Between '{w1}' and '{w2}'")
-            ax.set_xlabel("Year")
-            ax.set_ylabel("Cosine distance")
-            ax.grid(True)
-
-            st.pyplot(fig)
-
-    # ───── MULTI-WORD COMPARISON ─────
-
-    elif mode == "Multi-Word Comparison":
-        words = st.text_input("Words (comma-separated):", "crisis, war, peace").split(",")
-
-        drift_data = {}
-
-        for w in [x.strip() for x in words]:
-            v, y = get_word_vectors(year_embeddings, w)
-            if v is not None:
-                base = v[0]
-                drift = [cosine(base, vi) for vi in v]
-                drift_data[w] = (y, drift)
-
-        if st.button("Plot Comparison"):
-            fig, ax = plt.subplots(figsize=(12, 6))
-
-            for w, (years, drift) in drift_data.items():
-                ax.plot(years, drift, marker="o", label=w)
-
-            ax.set_title("Comparative Semantic Drift")
-            ax.set_xlabel("Year")
-            ax.set_ylabel("Drift")
-            ax.legend()
-            ax.grid(True)
-
-            st.pyplot(fig)
+        with tab2:
+            st.pyplot(plot_trajectory(vectors, years, word))
 
 
 if __name__ == "__main__":
