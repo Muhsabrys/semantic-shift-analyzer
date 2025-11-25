@@ -19,6 +19,8 @@ from datetime import datetime
 import warnings
 import networkx as nx
 from mpl_toolkits.mplot3d import Axes3D
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
 warnings.filterwarnings('ignore')
 
 from nltk.tokenize import word_tokenize
@@ -75,12 +77,13 @@ except:
 lemmatizer = WordNetLemmatizer()
 
 # Page config
-st.set_page_config(
-    page_title="Semantic Shift Analyzer",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+if __name__ == "__main__":
+    st.set_page_config(
+        page_title="Semantic Shift Analyzer",
+        page_icon="📊",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
 
 # Custom CSS
 st.markdown("""
@@ -227,7 +230,6 @@ def load_corpus_from_file(uploaded_file):
     return year_to_text
 
 # Text processing with lemmatization
-@st.cache_data
 def clean_and_lemmatize(text):
     """Clean, normalize, and lemmatize text"""
     # Remove non-alphabetic characters
@@ -249,6 +251,11 @@ def clean_and_lemmatize(text):
     
     return lemmatized
 
+def _process_text_wrapper(args):
+    """Wrapper for parallel processing"""
+    year, text = args
+    return year, clean_and_lemmatize(text)
+
 @st.cache_data
 def tokenize_corpus(year_to_text):
     """Tokenize and lemmatize all texts"""
@@ -258,10 +265,29 @@ def tokenize_corpus(year_to_text):
     status_text = st.empty()
     
     years = sorted(year_to_text.keys())
-    for idx, yr in enumerate(years):
-        status_text.text(f"Processing year {yr}...")
-        progress_bar.progress((idx + 1) / len(years))
-        year_to_tokens[yr] = clean_and_lemmatize(year_to_text[yr])
+    
+    # Use parallel processing for tokenization
+    # We use a list of tuples for arguments
+    process_args = [(yr, year_to_text[yr]) for yr in years]
+    
+    # Determine number of workers (leave one core free for UI)
+    max_workers = max(1, multiprocessing.cpu_count() - 1)
+    
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        futures = [executor.submit(_process_text_wrapper, arg) for arg in process_args]
+        
+        # Collect results as they complete
+        for i, future in enumerate(futures):
+            try:
+                year, tokens = future.result()
+                year_to_tokens[year] = tokens
+                
+                # Update progress
+                status_text.text(f"Processing year {year}...")
+                progress_bar.progress((i + 1) / len(years))
+            except Exception as e:
+                st.error(f"Error processing year: {e}")
     
     progress_bar.empty()
     status_text.empty()
@@ -330,6 +356,9 @@ def train_stable_models(_year_to_tokens, global_vocab, n_seeds=5, vector_size=20
         # Train multiple models with different seeds
         all_embeddings = {}
         
+        # Use all available cores for training
+        n_workers = multiprocessing.cpu_count()
+        
         for seed_idx in range(n_seeds):
             status_text.text(f"Training year {yr} (seed {seed_idx+1}/{n_seeds})...")
             current_iteration += 1
@@ -341,9 +370,9 @@ def train_stable_models(_year_to_tokens, global_vocab, n_seeds=5, vector_size=20
                 window=window,
                 min_count=min_count,
                 sg=1,  # Skip-gram
-                workers=1,  # Single worker for reproducibility per seed
+                workers=n_workers,  # Multi-threaded training
                 seed=seed_idx,
-                epochs=20,  # More epochs for better convergence
+                epochs=15,  # Reduced epochs for speed (was 20)
                 negative=10  # More negative samples
             )
             
