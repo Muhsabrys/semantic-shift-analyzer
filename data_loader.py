@@ -3,7 +3,6 @@ Enhanced data loading with precomputed embeddings support
 """
 
 import streamlit as st
-import pandas as pd
 import numpy as np
 import requests
 from io import BytesIO
@@ -18,7 +17,7 @@ PRECOMPUTED_URL = "https://github.com/Muhsabrys/semantic-shift-analyzer/raw/main
 def download_precomputed_embeddings():
     """Download precomputed embeddings from GitHub"""
     try:
-        response = requests.get(PRECOMPUTED_URL, timeout=30)
+        response = requests.get(PRECOMPUTED_URL, timeout=60)
         response.raise_for_status()
         
         # Load from bytes
@@ -62,8 +61,7 @@ def load_precomputed_corpus():
             # Get embeddings for this year
             year_embeddings = embeddings_dict[year]
             
-            # Create a mock Word2Vec model with these embeddings
-            # We'll create KeyedVectors directly
+            # Create KeyedVectors directly
             kv = KeyedVectors(vector_size=year_embeddings.shape[1])
             
             # Add vectors
