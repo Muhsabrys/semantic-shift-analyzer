@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
 import requests
+import os
 from io import BytesIO
 from gensim.models import Word2Vec
 from gensim.models.keyedvectors import KeyedVectors
@@ -11,11 +12,20 @@ PRECOMPUTED_URL = "https://github.com/Muhsabrys/semantic-shift-analyzer/raw/main
 def load_precomputed_corpus():
     """Load precomputed State of the Union embeddings"""
     try:
-        with st.spinner("Downloading embeddings..."):
-            response = requests.get(PRECOMPUTED_URL, timeout=60)
-            response.raise_for_status()
+        data_source = None
+        local_path = "state_of_union_embeddings.npz"
         
-        with np.load(BytesIO(response.content), allow_pickle=True) as npz_data:
+        if os.path.exists(local_path):
+            # st.info(f"Loading from local file: {local_path}")
+            data_source = local_path
+        else:
+            # st.info("Local file not found, downloading...")
+            with st.spinner("Downloading embeddings..."):
+                response = requests.get(PRECOMPUTED_URL, timeout=60)
+                response.raise_for_status()
+                data_source = BytesIO(response.content)
+        
+        with np.load(data_source, allow_pickle=True) as npz_data:
             embeddings_array = npz_data['embeddings']  # (n_years, vocab_size, embedding_dim)
             vocabulary = npz_data['vocabulary'].tolist()
             years = npz_data['years'].tolist()
@@ -60,11 +70,11 @@ def load_precomputed_corpus():
         return None, None, None, None
 
 @st.cache_data 
-def get_precomputed_word_stats(global_vocab, _models):  # Add underscore here
+def get_precomputed_word_stats(global_vocab, _models):
     word_to_years = {}
     word_to_total_count = {}
     
-    for year, model in _models.items():  # Use _models instead of models
+    for year, model in _models.items():
         for word in model.wv.index_to_key:
             if word not in word_to_years:
                 word_to_years[word] = set()
