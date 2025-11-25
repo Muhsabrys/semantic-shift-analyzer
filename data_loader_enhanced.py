@@ -60,11 +60,11 @@ def load_precomputed_corpus():
         return None, None, None, None
 
 @st.cache_data 
-def get_precomputed_word_stats(global_vocab, models):
+def get_precomputed_word_stats(global_vocab, _models):  # Add underscore here
     word_to_years = {}
     word_to_total_count = {}
     
-    for year, model in models.items():
+    for year, model in _models.items():  # Use _models instead of models
         for word in model.wv.index_to_key:
             if word not in word_to_years:
                 word_to_years[word] = set()
