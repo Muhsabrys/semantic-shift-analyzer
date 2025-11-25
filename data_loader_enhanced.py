@@ -16,23 +16,40 @@ def load_precomputed_corpus():
             response.raise_for_status()
         
         with np.load(BytesIO(response.content), allow_pickle=True) as npz_data:
-            # Check what keys exist
-            st.write("NPZ keys:", list(npz_data.keys()))
-            
-            # Try to extract data - adjust based on actual structure
-            years = npz_data['years']
-            vocabulary = npz_data['vocabulary']
-            
-            # Show first year to understand structure
-            st.write("Years:", years[:5] if len(years) > 5 else years)
-            st.write("Vocabulary size:", len(vocabulary))
-            
-            # The embeddings might be stored differently
-            # Let's check all keys
-            for key in npz_data.keys():
-                st.write(f"{key}: {type(npz_data[key])}, shape: {npz_data[key].shape if hasattr(npz_data[key], 'shape') else 'N/A'}")
+            years = [int(y) for y in npz_data['years']]
+            vocabulary = [str(v) for v in npz_data['vocabulary']]
+            embeddings_dict = npz_data['embeddings'].item()  # Extract the dict from 0-d array
         
-        return None, None, None, None
+        # Convert embeddings dict to proper format
+        models = {}
+        progress_bar = st.progress(0)
+        
+        for idx, year in enumerate(years):
+            progress_bar.progress((idx + 1) / len(years))
+            
+            # Get embeddings for this year
+            year_key = year if year in embeddings_dict else str(year)
+            year_embeddings = embeddings_dict[year_key]
+            embedding_dim = year_embeddings.shape[1]
+            
+            kv = KeyedVectors(vector_size=embedding_dim)
+            kv.add_vectors(vocabulary, year_embeddings)
+            
+            model = Word2Vec(vector_size=embedding_dim, min_count=1)
+            model.wv = kv
+            models[year] = model
+        
+        progress_bar.empty()
+        
+        metadata = {
+            'source': 'State of the Union Addresses',
+            'vocabulary_size': len(vocabulary),
+            'embedding_dimension': embedding_dim,
+            'years': f"{min(years)}-{max(years)}"
+        }
+        
+        st.success(f"✅ Loaded {len(years)} years ({min(years)}-{max(years)})!")
+        return models, sorted(years), set(vocabulary), metadata
         
     except Exception as e:
         st.error(f"❌ Error: {str(e)}")
