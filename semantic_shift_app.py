@@ -1,10 +1,6 @@
-
 """
-Semantic Shift Analysis - Interactive Web Application
-Analyzes semantic drift in text corpora using improved Word2Vec methodology
-with lemmatization, vocabulary alignment, and stability enhancements
-
-Main entry point for Streamlit app
+Semantic Shift Analysis - Interactive Web Application with Precomputed Embeddings
+Enhanced version supporting both user uploads and precomputed State of the Union corpus
 """
 
 import streamlit as st
@@ -22,6 +18,12 @@ from data_loader import (
     tokenize_corpus,
     build_global_vocabulary,
     lemmatizer
+)
+
+# Import precomputed embeddings support
+from data_loader_enhanced import (
+    load_precomputed_corpus,
+    get_precomputed_word_stats
 )
 
 # Import model training
@@ -58,119 +60,112 @@ def main():
     # Sidebar
     st.sidebar.header("⚙️ Configuration")
     
-    st.sidebar.subheader("📁 Upload Your Corpus")
-    st.sidebar.markdown("""
-    **File Formats:**
-    - **TXT**: `YEAR<tab>TEXT` or `YEAR,TEXT` (one per line)
-    - **CSV/XLSX**: Columns named `year` and `text`
-    
-    **Requirements:**
-    - Years must be integers
-    - Each year needs text content
-    - Minimum 3-5 years recommended
-    - At least 500+ words per year for stability
-    """)
-    
-    uploaded_file = st.sidebar.file_uploader(
-        "Upload your corpus file",
-        type=['txt', 'csv', 'xlsx', 'xls'],
-        help="Upload a file with year and text data"
+    # Data source selection
+    st.sidebar.subheader("📊 Choose Data Source")
+    data_source = st.sidebar.radio(
+        "Select corpus:",
+        ["Upload Your Own File", "Use Precomputed State of the Union Corpus"],
+        help="Upload your own data or explore our precomputed State of the Union embeddings"
     )
     
-    # Advanced settings
-    with st.sidebar.expander("🔧 Advanced Settings"):
-        vector_size = st.slider("Vector Size", 50, 300, 200, 50,
-                               help="Larger = more expressive but slower")
-        window_size = st.slider("Context Window", 3, 10, 5, 1,
-                               help="How many surrounding words to consider")
-        min_years = st.slider("Min Years for Vocabulary", 2, 5, 2, 1,
-                             help="Word must appear in at least this many years")
-        min_total_count = st.slider("Min Total Occurrences", 2, 10, 3, 1,
-                                   help="Word must appear this many times total")
-        n_seeds = st.slider("Training Seeds", 1, 10, 5, 1,
-                           help="More seeds = more stable but slower")
+    models = None
+    years = None
+    global_vocab = None
+    word_to_years = None
+    word_to_total_count = None
+    min_years = 2
+    min_total_count = 3
     
-    year_to_text = None
-    
-    if uploaded_file is not None:
-        with st.spinner("Loading your corpus..."):
-            year_to_text = load_corpus_from_file(uploaded_file)
-            
-        if year_to_text is not None:
-            years = sorted(year_to_text.keys())
-            
-            # Show corpus statistics
-            total_words = sum(len(text.split()) for text in year_to_text.values())
-            avg_words = total_words / len(years)
-            
-            st.sidebar.success(f"✅ Loaded {len(years)} documents ({min(years)}-{max(years)})")
-            st.sidebar.metric("Total Words", f"{total_words:,}")
-            st.sidebar.metric("Avg Words/Year", f"{avg_words:.0f}")
-            
-            # Warning for small corpora
-            if avg_words < 500:
-                st.sidebar.markdown("""
-                <div class="warning-box">
-                ⚠️ <strong>Small Corpus Warning</strong><br>
-                Your corpus has <500 words per year on average.<br>
-                Results may be unstable. Consider adding more text.
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # Show preview
-            with st.sidebar.expander("📊 Preview Data"):
-                st.write(f"**Years:** {', '.join(map(str, years[:10]))}" + 
-                        ("..." if len(years) > 10 else ""))
-                st.write(f"**Sample text from year {years[0]}:**")
-                st.text(year_to_text[years[0]][:200] + "...")
-    else:
-        st.info("👆 Please upload a corpus file to begin analysis")
-        _show_welcome_message()
-        return
-    
-    # Process corpus
-    if year_to_text is not None:
-        with st.spinner("Processing corpus with lemmatization..."):
-            year_to_tokens = tokenize_corpus(year_to_text)
-            years = sorted(year_to_text.keys())
+    if data_source == "Upload Your Own File":
+        # Original upload flow
+        st.sidebar.subheader("📁 Upload Your Corpus")
+        st.sidebar.markdown("""
+        **File Formats:**
+        - **TXT**: `YEAR<tab>TEXT` or `YEAR,TEXT` (one per line)
+        - **CSV/XLSX**: Columns named `year` and `text`
         
-        # Build global vocabulary
-        with st.spinner("Building global vocabulary..."):
-            global_vocab, word_to_years, word_to_total_count = build_global_vocabulary(
-                year_to_tokens, min_years=min_years, min_total_count=min_total_count
+        **Requirements:**
+        - Years must be integers
+        - Each year needs text content
+        - Minimum 3-5 years recommended
+        - At least 500+ words per year for stability
+        """)
+        
+        uploaded_file = st.sidebar.file_uploader(
+            "Upload your corpus file",
+            type=['txt', 'csv', 'xlsx', 'xls'],
+            help="Upload a file with year and text data"
+        )
+        
+        # Advanced settings
+        with st.sidebar.expander("🔧 Advanced Settings"):
+            vector_size = st.slider("Vector Size", 50, 300, 200, 50,
+                                   help="Larger = more expressive but slower")
+            window_size = st.slider("Context Window", 3, 10, 5, 1,
+                                   help="How many surrounding words to consider")
+            min_years = st.slider("Min Years for Vocabulary", 2, 5, 2, 1,
+                                 help="Word must appear in at least this many years")
+            min_total_count = st.slider("Min Total Occurrences", 2, 10, 3, 1,
+                                       help="Word must appear this many times total")
+            n_seeds = st.slider("Training Seeds", 1, 10, 5, 1,
+                               help="More seeds = more stable but slower")
+        
+        if uploaded_file is not None:
+            models, years, global_vocab, word_to_years, word_to_total_count = _process_uploaded_file(
+                uploaded_file, vector_size, window_size, min_years, min_total_count, n_seeds
             )
+        else:
+            st.info("👆 Please upload a corpus file to begin analysis")
+            _show_welcome_message()
+            return
+    
+    else:  # Precomputed corpus
+        st.sidebar.markdown("""
+        ### 📜 State of the Union Corpus
         
-        st.sidebar.success(f"✅ Global vocabulary: {len(global_vocab):,} words")
+        This precomputed corpus contains embeddings from historical 
+        State of the Union addresses, allowing you to explore semantic 
+        shifts in American political discourse over time.
         
-        # Show vocabulary info
-        with st.sidebar.expander("📖 Vocabulary Info"):
-            st.write(f"**Total unique words (before filtering):** {len(word_to_years):,}")
-            st.write(f"**Global vocabulary (after filtering):** {len(global_vocab):,}")
-            st.write(f"**Filter criteria:**")
-            st.write(f"  - Min years: {min_years}")
-            st.write(f"  - Min total occurrences: {min_total_count}")
+        **Features:**
+        - Pre-trained embeddings (no training time!)
+        - Multiple decades of data
+        - High-quality historical corpus
+        - Ready to analyze immediately
+        """)
+        
+        if st.sidebar.button("🚀 Load State of the Union Corpus", type="primary"):
+            models, years, global_vocab, metadata = load_precomputed_corpus()
             
-            # Sample words
-            sample_words = sorted(list(global_vocab))[:20]
-            st.write(f"**Sample words:** {', '.join(sample_words)}")
-        
-        # Train models
-        cache_key = f"models_{uploaded_file.name}_{len(years)}_{vector_size}_{n_seeds}"
-        if cache_key not in st.session_state:
-            with st.spinner(f"Training models with {n_seeds} seeds for stability... This may take a few minutes."):
-                st.session_state[cache_key] = train_stable_models(
-                    year_to_tokens, 
-                    global_vocab,
-                    n_seeds=n_seeds,
-                    vector_size=vector_size,
-                    window=window_size
-                )
-            st.sidebar.success(f"✅ Trained {len(st.session_state[cache_key])} models")
-        
-        models = st.session_state[cache_key]
-        
-        # Create analysis tabs
-        _create_analysis_tabs(models, years, global_vocab, word_to_years, word_to_total_count, min_years, min_total_count)
+            if models is not None:
+                # Generate word statistics
+                word_to_years, word_to_total_count = get_precomputed_word_stats(global_vocab, models)
+                
+                # Show corpus info
+                st.sidebar.success(f"✅ Loaded {len(years)} years ({min(years)}-{max(years)})")
+                st.sidebar.metric("Vocabulary Size", f"{len(global_vocab):,}")
+                st.sidebar.metric("Embedding Dimension", metadata.get('embedding_dimension', 'N/A'))
+                
+                # Show metadata
+                with st.sidebar.expander("📖 Corpus Information"):
+                    st.write(f"**Source:** {metadata.get('source', 'Unknown')}")
+                    st.write(f"**Description:** {metadata.get('description', 'N/A')}")
+                    st.write(f"**Year Range:** {metadata.get('years', 'N/A')}")
+            else:
+                st.error("Failed to load precomputed corpus. Please try uploading your own file instead.")
+                return
+        else:
+            st.info("👆 Click the button above to load the State of the Union corpus")
+            _show_precomputed_info()
+            return
+    
+    # Main analysis section (common to both paths)
+    if models is not None and years is not None and global_vocab is not None:
+        _create_analysis_tabs(
+            models, years, global_vocab, 
+            word_to_years, word_to_total_count, 
+            min_years, min_total_count
+        )
         
         # Vocabulary explorer
         _create_vocabulary_explorer(global_vocab)
@@ -179,26 +174,108 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📚 About")
     st.sidebar.info("""
-    **Improved Semantic Shift Analyzer**
+    **The Semantrift: Semantic Shift Analyzer**
     
-    This version includes:
+    Features:
+    - Upload your own corpus OR
+    - Explore precomputed State of the Union data
     - Lemmatization for vocabulary stability
     - Global vocabulary filtering
     - Multi-seed training for robustness
-    - Better error handling
-    - Corpus quality checks
     - Advanced visualizations
     
     Built with Streamlit 🎈
     """)
 
 
+def _process_uploaded_file(uploaded_file, vector_size, window_size, min_years, min_total_count, n_seeds):
+    """Process user-uploaded file"""
+    with st.spinner("Loading your corpus..."):
+        year_to_text = load_corpus_from_file(uploaded_file)
+        
+    if year_to_text is None:
+        return None, None, None, None, None
+    
+    years = sorted(year_to_text.keys())
+    
+    # Show corpus statistics
+    total_words = sum(len(text.split()) for text in year_to_text.values())
+    avg_words = total_words / len(years)
+    
+    st.sidebar.success(f"✅ Loaded {len(years)} documents ({min(years)}-{max(years)})")
+    st.sidebar.metric("Total Words", f"{total_words:,}")
+    st.sidebar.metric("Avg Words/Year", f"{avg_words:.0f}")
+    
+    # Warning for small corpora
+    if avg_words < 500:
+        st.sidebar.markdown("""
+        <div class="warning-box">
+        ⚠️ <strong>Small Corpus Warning</strong><br>
+        Your corpus has <500 words per year on average.<br>
+        Results may be unstable. Consider adding more text.
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Show preview
+    with st.sidebar.expander("📊 Preview Data"):
+        st.write(f"**Years:** {', '.join(map(str, years[:10]))}" + 
+                ("..." if len(years) > 10 else ""))
+        st.write(f"**Sample text from year {years[0]}:**")
+        st.text(year_to_text[years[0]][:200] + "...")
+    
+    # Process corpus
+    with st.spinner("Processing corpus with lemmatization..."):
+        year_to_tokens = tokenize_corpus(year_to_text)
+    
+    # Build global vocabulary
+    with st.spinner("Building global vocabulary..."):
+        global_vocab, word_to_years, word_to_total_count = build_global_vocabulary(
+            year_to_tokens, min_years=min_years, min_total_count=min_total_count
+        )
+    
+    st.sidebar.success(f"✅ Global vocabulary: {len(global_vocab):,} words")
+    
+    # Show vocabulary info
+    with st.sidebar.expander("📖 Vocabulary Info"):
+        st.write(f"**Total unique words (before filtering):** {len(word_to_years):,}")
+        st.write(f"**Global vocabulary (after filtering):** {len(global_vocab):,}")
+        st.write(f"**Filter criteria:**")
+        st.write(f"  - Min years: {min_years}")
+        st.write(f"  - Min total occurrences: {min_total_count}")
+        
+        # Sample words
+        sample_words = sorted(list(global_vocab))[:20]
+        st.write(f"**Sample words:** {', '.join(sample_words)}")
+    
+    # Train models
+    cache_key = f"models_{uploaded_file.name}_{len(years)}_{vector_size}_{n_seeds}"
+    if cache_key not in st.session_state:
+        with st.spinner(f"Training models with {n_seeds} seeds for stability... This may take a few minutes."):
+            st.session_state[cache_key] = train_stable_models(
+                year_to_tokens, 
+                global_vocab,
+                n_seeds=n_seeds,
+                vector_size=vector_size,
+                window=window_size
+            )
+        st.sidebar.success(f"✅ Trained {len(st.session_state[cache_key])} models")
+    
+    models = st.session_state[cache_key]
+    
+    return models, years, global_vocab, word_to_years, word_to_total_count
+
+
 def _show_welcome_message():
     """Display welcome message and instructions"""
     st.markdown("""
-    ### 🎯 WELCOME TO THE SEMANTRIFT:
+    ### 🎯 WELCOME TO THE SEMANTRIFT!
     
-    ### 📝 How to Format Your File:
+    **Two ways to explore semantic drift:**
+    
+    1. **📁 Upload Your Own Corpus** - Bring your own time-series text data
+    2. **📜 Use Precomputed Embeddings** - Explore State of the Union addresses instantly
+    
+    ### 📝 File Format for Upload:
     
     **TXT Format (Tab-separated):**
     ```
@@ -217,7 +294,34 @@ def _show_welcome_message():
     - **More text per year = better embeddings** (aim for 500+ words)
     - **More years = better drift tracking** (5+ years ideal)
     - **Consistent topics** help maintain vocabulary overlap
-    - **Lemmatization** will automatically group word variants
+    - **Lemmatization** automatically groups word variants
+    """)
+
+
+def _show_precomputed_info():
+    """Show information about precomputed corpus"""
+    st.markdown("""
+    ### 📜 About the State of the Union Corpus
+    
+    The State of the Union address is an annual message delivered by the President 
+    of the United States to a joint session of Congress. This corpus contains 
+    embeddings pre-trained on historical addresses, allowing you to:
+    
+    - **Track political language evolution** across decades
+    - **Explore semantic shifts** in key terms (democracy, freedom, economy, etc.)
+    - **Analyze historical context** through word embeddings
+    - **No training time** - embeddings are pre-computed and ready to use
+    
+    ### 🔍 Example Analyses You Can Perform:
+    
+    - How has the meaning of "**freedom**" changed over time?
+    - What words were semantically closest to "**war**" in different eras?
+    - How did "**economy**" relate to other concepts across decades?
+    - Compare drift patterns between multiple political terms
+    
+    ### 🚀 Ready to Explore?
+    
+    Click the **"Load State of the Union Corpus"** button in the sidebar to begin!
     """)
 
 
@@ -278,6 +382,8 @@ def _tab_single_word_drift(models, years, global_vocab, word_to_years, word_to_t
         metric = st.selectbox("Distance metric:", ["cosine", "euclidean"])
     
     if word:
+        from nltk.stem import WordNetLemmatizer
+        lemmatizer = WordNetLemmatizer()
         lemmatized = lemmatizer.lemmatize(lemmatizer.lemmatize(word, pos='v'), pos='n')
         
         if word not in global_vocab and lemmatized not in global_vocab:
@@ -325,7 +431,11 @@ def _tab_single_word_drift(models, years, global_vocab, word_to_years, word_to_t
             col1, col2, col3 = st.columns(3)
             col1.metric("Years Present", len(years_present))
             col2.metric("Total Occurrences", total_count)
-            col3.metric("Years Available", ', '.join(map(str, sorted(years_present))))
+            
+            # Only show years available if we have that data
+            if years_present:
+                col3.metric("Years Available", ', '.join(map(str, sorted(list(years_present))[:5])) + 
+                           ('...' if len(years_present) > 5 else ''))
             
             plot_drift_robust(word_to_use, models, years, global_vocab, metric)
 
@@ -412,46 +522,8 @@ def _tab_multi_word_comparison(models, years, global_vocab):
     )
     
     if words_compare:
-        import matplotlib.pyplot as plt
-        
         words_list = [w.strip().lower() for w in words_compare.split(',')]
-        
-        valid_words = [w for w in words_list if w in global_vocab]
-        invalid_words = [w for w in words_list if w not in global_vocab]
-        
-        if invalid_words:
-            st.warning(f"⚠️ Skipping invalid words: {', '.join(invalid_words)}")
-        
-        if len(valid_words) >= 2:
-            fig, ax = plt.subplots(figsize=(12, 6))
-            
-            for word in valid_words:
-                base_year = years[0]
-                drift_scores = []
-                valid_years_word = []
-                
-                for target_yr in years[1:]:
-                    score = compute_drift_score_robust(
-                        word, base_year, target_yr, models, global_vocab
-                    )
-                    if score is not None:
-                        drift_scores.append(score)
-                        valid_years_word.append(target_yr)
-                
-                if drift_scores:
-                    ax.plot(valid_years_word, drift_scores, marker='o', 
-                           linewidth=2, label=word)
-            
-            ax.set_xlabel('Year', fontsize=12)
-            ax.set_ylabel('Cosine Distance from Baseline', fontsize=12)
-            ax.set_title(f'Comparative Semantic Drift (baseline: {years[0]})', 
-                       fontsize=14, fontweight='bold')
-            ax.legend()
-            ax.grid(True, alpha=0.3)
-            st.pyplot(fig)
-            plt.close()
-        else:
-            st.error("❌ Need at least 2 valid words for comparison")
+        compare_multiple_words(words_list, models, years, global_vocab)
 
 
 def _tab_enhanced_drift(models, years, global_vocab):
