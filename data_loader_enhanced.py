@@ -15,25 +15,29 @@ def load_precomputed_corpus():
             response = requests.get(PRECOMPUTED_URL, timeout=60)
             response.raise_for_status()
         
-        # Load npz and immediately extract data (don't return NpzFile object)
+        # Load npz and extract data immediately
         with np.load(BytesIO(response.content), allow_pickle=True) as npz_data:
             years = npz_data['years'].copy()
-            embeddings_dict = npz_data['embeddings'].item()
+            embeddings_dict = dict(npz_data['embeddings'].item())  # Convert to regular dict
             vocabulary = npz_data['vocabulary'].copy()
-            metadata = npz_data['metadata'].item() if 'metadata' in npz_data else {}
+            metadata = dict(npz_data['metadata'].item()) if 'metadata' in npz_data else {}
         
         # Convert to models
         models = {}
         progress_bar = st.progress(0)
+        embedding_dim = None
         
         for idx, year in enumerate(years):
             progress_bar.progress((idx + 1) / len(years))
             year_embeddings = embeddings_dict[year]
             
-            kv = KeyedVectors(vector_size=year_embeddings.shape[1])
+            if embedding_dim is None:
+                embedding_dim = year_embeddings.shape[1]
+            
+            kv = KeyedVectors(vector_size=embedding_dim)
             kv.add_vectors(vocabulary, year_embeddings)
             
-            model = Word2Vec(vector_size=year_embeddings.shape[1], min_count=1)
+            model = Word2Vec(vector_size=embedding_dim, min_count=1)
             model.wv = kv
             models[int(year)] = model
         
@@ -45,7 +49,7 @@ def load_precomputed_corpus():
                 'description': 'Precomputed embeddings',
                 'years': f"{min(years)}-{max(years)}",
                 'vocabulary_size': len(vocabulary),
-                'embedding_dimension': year_embeddings.shape[1]
+                'embedding_dimension': embedding_dim
             }
         
         st.success(f"✅ Loaded {len(years)} years!")
