@@ -59,8 +59,8 @@ st.markdown("""
 
 
 def main():
-    st.markdown('<p class="main-header">🕰️🔍 The Semantrift — Semantic Shift Analyzer 💬📈</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">“You shall know a word by the company it keeps" (Firth, 1957)</p>', 
+    st.markdown('<p class="main-header"> 🕰️🔍 The Semantrift — Semantic Shift Analyzer 💬📈 </p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header"> “You shall know a word by the company it keeps" (Firth, 1957)" </p>', 
                 unsafe_allow_html=True)
     st.markdown('<p class="sub-header">The State of the Union model takes some time to load .. please be patient 😊 </p>', 
                 unsafe_allow_html=True)
